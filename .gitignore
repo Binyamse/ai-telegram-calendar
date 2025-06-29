@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+web/.htpasswd
 data/
 # C extensions
 *.so

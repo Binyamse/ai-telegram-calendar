@@ -11,6 +11,10 @@ import aiohttp
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 
+# Google Calendar imports
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
 # Configuration from environment variables
 API_ID = int(os.getenv('TELEGRAM_API_ID', '0'))
 API_HASH = os.getenv('TELEGRAM_API_HASH', '')
@@ -27,6 +31,8 @@ SCAN_LIMIT = int(os.getenv('SCAN_LIMIT', '100'))
 SESSION_PATH = os.getenv('SESSION_PATH', '/app/data/telegram_session')
 TELEGRAM_CODE = os.getenv('TELEGRAM_CODE', '')  # For verification code
 TELEGRAM_2FA_PASSWORD = os.getenv('TELEGRAM_2FA_PASSWORD', '')  # For 2FA
+GOOGLE_CALENDAR_CREDENTIALS = os.getenv('GOOGLE_CALENDAR_CREDENTIALS', '/app/data/google-credentials.json')
+GOOGLE_CALENDAR_ID = os.getenv('GOOGLE_CALENDAR_ID', '')
 
 # Setup logging
 logging.basicConfig(
@@ -410,6 +416,61 @@ Text to analyze:
         
         return events
 
+class GoogleCalendarClient:
+    def __init__(self, credentials_path: str, calendar_id: str):
+        self.calendar_id = calendar_id
+        self.service = None
+        self.credentials_path = credentials_path
+        self._authenticate()
+
+    def _authenticate(self):
+        try:
+            scopes = ['https://www.googleapis.com/auth/calendar']
+            credentials = service_account.Credentials.from_service_account_file(
+                self.credentials_path, scopes=scopes)
+            self.service = build('calendar', 'v3', credentials=credentials)
+            logger.info('Authenticated with Google Calendar API')
+        except Exception as e:
+            logger.error(f'Google Calendar authentication failed: {e}')
+            self.service = None
+
+    def create_event(self, event: 'CalendarEvent'):
+        if not self.service or not self.calendar_id:
+            logger.warning('Google Calendar service or calendar ID not configured.')
+            return None
+        try:
+            event_body = {
+                'summary': event.title,
+                'description': event.description,
+                'start': {
+                    'dateTime': event.start_date.isoformat(),
+                    'timeZone': 'UTC',
+                },
+                'end': {
+                    'dateTime': (event.end_date or event.start_date).isoformat(),
+                    'timeZone': 'UTC',
+                },
+            }
+            # Only include location if present and non-empty
+            if event.location:
+                event_body['location'] = event.location
+            # Only include source if a valid URL is present (Google Calendar requires a valid URL)
+            # Here, we check if event.description contains a URL and use it as the source
+            url_match = None
+            if event.description:
+                url_match = re.search(r'https?://\S+', event.description)
+            if url_match:
+                event_body['source'] = {
+                    'title': event.source_group or 'Telegram',
+                    'url': url_match.group(0)
+                }
+            created_event = self.service.events().insert(calendarId=self.calendar_id, body=event_body).execute()
+            logger.info(f'Event pushed to Google Calendar: {event.title} ({created_event.get("id")})')
+            return created_event
+        except Exception as e:
+            logger.error(f'Failed to create Google Calendar event: {e}')
+            return None
+
 class TelegramCalendarSync:
     def __init__(self):
         self.client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
@@ -417,12 +478,17 @@ class TelegramCalendarSync:
         self.processed_messages = set()
         self.events_file = CALENDAR_OUTPUT_PATH
         self.processed_messages_file = PROCESSED_MESSAGES_PATH
-        
         # Ensure data directory exists
         os.makedirs(os.path.dirname(self.events_file), exist_ok=True)
-        
         self.load_processed_messages()
-    
+
+        # Google Calendar client
+        self.gcal = None
+        if GOOGLE_CALENDAR_ID and os.path.exists(GOOGLE_CALENDAR_CREDENTIALS):
+            self.gcal = GoogleCalendarClient(GOOGLE_CALENDAR_CREDENTIALS, GOOGLE_CALENDAR_ID)
+        else:
+            logger.info('Google Calendar integration not enabled (missing credentials or calendar ID)')
+
     def load_processed_messages(self):
         """Load previously processed message IDs, robust to file errors and empty files."""
         try:
@@ -479,14 +545,12 @@ class TelegramCalendarSync:
             logger.error(f"Error loading existing events: {e}")
         return []
     
-    def save_events(self, events: List[CalendarEvent]):
-        """Save events to file, always accumulating and avoiding duplicates by title, date, group, and message ID."""
+    def save_events(self, events: List[CalendarEvent], force_flush: bool = False):
+        """Save events to file and Google Calendar, avoiding duplicates."""
         try:
             logger.debug(f"Saving events to file: {os.path.abspath(self.events_file)}")
-            # Load existing events
             existing_events = self.load_existing_events()
             logger.debug(f"Before saving, {len(existing_events)} events loaded from file.")
-            # Build a set of unique signatures for fast duplicate checking
             existing_signatures = {
                 (e.title, e.start_date.date(), e.source_group, e.source_message_id)
                 for e in existing_events
@@ -499,13 +563,15 @@ class TelegramCalendarSync:
                     existing_signatures.add(signature)
                     new_events_added += 1
                     logger.debug(f"Adding new event: {event.title} on {event.start_date}")
-            # Save all events (accumulated)
+                    # Push to Google Calendar if enabled
+                    if self.gcal:
+                        self.gcal.create_event(event)
             try:
                 with open(self.events_file, 'w') as f:
                     json_data = [event.to_dict() for event in existing_events]
                     json.dump(json_data, f, indent=2, default=str)
                     f.flush()
-                    os.fsync(f.fileno())  # Force write to disk
+                    os.fsync(f.fileno())
                 logger.info(f"Saved events file with {len(existing_events)} total events (added {new_events_added} new events)")
             except Exception as e:
                 logger.error(f"Error writing events to file: {e}")

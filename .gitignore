@@ -3,7 +3,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 web/.htpasswd
-data/
+data/*.json
+data/telegram_*   
 # C extensions
 *.so
 

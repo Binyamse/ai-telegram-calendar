@@ -462,7 +462,6 @@
                         <div class="event-title">${escapeHtml(event.title)}</div>
                         <div class="confidence-badge">${Math.round(event.confidence_score * 100)}%</div>
                     </div>
-                    
                     <div class="event-date">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -472,7 +471,6 @@
                         </svg>
                         ${formatDate(event.start_date)}
                     </div>
-                    
                     ${event.start_date !== event.end_date && event.end_date ? `
                         <div class="event-time">
                             ${formatTime(event.start_date)} - ${formatTime(event.end_date)}
@@ -482,7 +480,6 @@
                             ${formatTime(event.start_date)}
                         </div>
                     `}
-                    
                     ${event.location ? `
                         <div class="event-location">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -492,19 +489,22 @@
                             ${escapeHtml(event.location)}
                         </div>
                     ` : ''}
-                    
                     <div class="event-description">
                         ${escapeHtml(event.description.substring(0, 200))}${event.description.length > 200 ? '...' : ''}
                     </div>
-                    
                     <div class="event-source">
                         <div class="source-group">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                             </svg>
                             ${escapeHtml(event.source_group)}
+                            ${event.source_type === 'pdf' ? `<span title="Extracted from PDF" style="margin-left:6px;vertical-align:middle;">📄</span>` : ''}
+                            ${event.source_type === 'image' ? `<span title="Extracted from Image" style="margin-left:6px;vertical-align:middle;">🖼️</span>` : ''}
                         </div>
-                        <div>${formatRelativeTime(new Date(event.start_date))}</div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            ${event.telegram_link ? `<a href="${event.telegram_link}" target="_blank" title="View Telegram Post" style="text-decoration:none;display:inline-flex;align-items:center;">🔗<span style="font-size:0.85em;margin-left:2px;">Post</span></a>` : ''}
+                            <span>${formatRelativeTime(new Date(event.start_date))}</span>
+                        </div>
                     </div>
                 </div>
             `).join('');

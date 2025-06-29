@@ -1,3 +1,7 @@
+import fitz  # PyMuPDF
+from PIL import Image
+import pytesseract
+import tempfile
 import asyncio
 import os
 import json
@@ -56,6 +60,9 @@ class CalendarEvent:
     source_message_id: int = 0
     confidence_score: float = 0.0
     
+    source_type: str = "text"  # "text", "pdf", "image"
+    telegram_link: str = ""
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             **asdict(self),
@@ -588,49 +595,92 @@ class TelegramCalendarSync:
             logger.debug(f"Skipping already processed message {message_key}")
             return events
         
+
+
         text = message.text or ""
-        if len(text.strip()) < 3:  # Only skip empty or trivial messages
-            logger.debug(f"Skipping very short message from {group_name} (length: {len(text.strip())})")
+        extracted_texts = []
+        extracted_types = []
+        if text.strip():
+            extracted_texts.append(text)
+            extracted_types.append("text")
+
+        # --- Media extraction: PDF and images ---
+        try:
+            if getattr(message, 'media', None):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    file_path = await message.download_media(file=tmpdir)
+                    if file_path:
+                        logger.info(f"Downloaded media to {file_path}")
+                        if file_path.lower().endswith('.pdf'):
+                            # Extract text from PDF using PyMuPDF
+                            try:
+                                doc = fitz.open(file_path)
+                                pdf_text = "\n".join(page.get_text() for page in doc)
+                                if pdf_text.strip():
+                                    extracted_texts.append(pdf_text)
+                                    extracted_types.append("pdf")
+                                    logger.info(f"Extracted text from PDF ({len(pdf_text)} chars)")
+                            except Exception as e:
+                                logger.error(f"PDF extraction failed: {e}")
+                        elif file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp')):
+                            # OCR for images
+                            try:
+                                img = Image.open(file_path)
+                                ocr_text = pytesseract.image_to_string(img)
+                                if ocr_text.strip():
+                                    extracted_texts.append(ocr_text)
+                                    extracted_types.append("image")
+                                    logger.info(f"Extracted text from image ({len(ocr_text)} chars)")
+                            except Exception as e:
+                                logger.error(f"Image OCR failed: {e}")
+        except Exception as e:
+            logger.error(f"Media extraction error: {e}")
+
+        if not any(t.strip() for t in extracted_texts):
+            logger.debug(f"No text or extractable media in message from {group_name}")
+            self.processed_messages.add(message_key)
             return events
-        
-        logger.debug(f"Processing message from {group_name}:\n{text}\n")
-        
+
         try:
             # Use message date as reference point for relative dates
-            # Message date from Telegram is always in UTC
             message_date = message.date.replace(tzinfo=timezone.utc)
             reference_date = message_date.strftime('%Y-%m-%d')
-            logger.debug(f"Using message date as reference: {reference_date}")
-            
-            # Extract events using LLM with message date as reference
-            logger.debug(f"Sending to LLM for extraction: {text[:500]}...")
-            extracted_events = await self.llm_extractor.extract_events(text, reference_date)
-            logger.debug(f"LLM returned {len(extracted_events)} potential events")
-            
-            # Add metadata to events
-            for event in extracted_events:
-                event.source_group = group_name
-                event.source_message_id = message.id
-                if not event.description:
-                    event.description = text[:500]  # Use original text as description
-                
-                # Compare timezone-aware datetimes
-                if (event.confidence_score >= 0.5 and 
-                    event.start_date.replace(tzinfo=timezone.utc) >= message_date - timedelta(days=1)):
-                    events.append(event)
-                    logger.info(f"Extracted event: {event.title} on {event.start_date.strftime('%Y-%m-%d %H:%M')} (confidence: {event.confidence_score:.2f})")
-                else:
-                    logger.debug(f"Rejected event: {event.title} (confidence: {event.confidence_score:.2f}, date: {event.start_date})")
-        
+            for idx, text_variant in enumerate(extracted_texts):
+                logger.debug(f"Sending to LLM for extraction: {text_variant[:500]}...")
+                extracted_events = await self.llm_extractor.extract_events(text_variant, reference_date)
+                logger.debug(f"LLM returned {len(extracted_events)} potential events")
+                for event in extracted_events:
+                    event.source_group = group_name
+                    event.source_message_id = message.id
+                    event.source_type = extracted_types[idx] if idx < len(extracted_types) else "text"
+                    # Telegram link: https://t.me/c/{chat_id}/{message_id} (for private/supergroups)
+                    # or https://t.me/{username}/{message_id} (for public groups)
+                    try:
+                        if hasattr(message, 'chat') and hasattr(message.chat, 'username') and message.chat.username:
+                            event.telegram_link = f"https://t.me/{message.chat.username}/{message.id}"
+                        elif hasattr(message, 'chat') and hasattr(message.chat, 'id'):
+                            chat_id = str(message.chat.id)
+                            if chat_id.startswith("-100"):
+                                event.telegram_link = f"https://t.me/c/{chat_id[4:]}/{message.id}"
+                    except Exception as e:
+                        logger.error(f"Failed to build telegram link: {e}")
+                    if not event.description:
+                        event.description = text_variant[:500]
+                    if (event.confidence_score >= 0.5 and 
+                        event.start_date.replace(tzinfo=timezone.utc) >= message_date - timedelta(days=1)):
+                        events.append(event)
+                        logger.info(f"Extracted event: {event.title} on {event.start_date.strftime('%Y-%m-%d %H:%M')} (confidence: {event.confidence_score:.2f})")
+                    else:
+                        logger.debug(f"Rejected event: {event.title} (confidence: {event.confidence_score:.2f}, date: {event.start_date})")
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
-        
+
         # Mark message as processed
         self.processed_messages.add(message_key)
-        
+
         if not events:
             logger.debug(f"No events found in message from {group_name}")
-        
+
         return events
     
     async def scan_group_messages(self, group_identifier: str, limit: int = SCAN_LIMIT):

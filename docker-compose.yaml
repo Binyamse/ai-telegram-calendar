@@ -26,11 +26,11 @@ services:
     image: jrcs/letsencrypt-nginx-proxy-companion
     container_name: letsencrypt-companion
     restart: unless-stopped
+    volumes_from:
+      - nginx-proxy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/nginx/certs:/etc/nginx/certs:rw
-      - ./data/nginx/vhost.d:/etc/nginx/vhost.d
-      - ./data/nginx/html:/usr/share/nginx/html
     depends_on:
       - nginx-proxy
     networks:

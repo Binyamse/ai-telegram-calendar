@@ -300,7 +300,7 @@
             </div>
             <div class="stat-card">
                 <div class="stat-number" id="groups-count">-</div>
-                <div class="stat-label">Groups Monitored</div>
+                <div class="stat-label">Event Sources</div>
             </div>
             <div class="stat-card">
                 <div class="stat-number" id="last-updated">-</div>
@@ -311,7 +311,7 @@
         <div class="controls">
             <input type="text" class="search-box" id="search-input" placeholder="🔍 Search events...">
             <select class="filter-select" id="group-filter">
-                <option value="">All Groups</option>
+                <option value="">All Sources</option>
             </select>
             <select class="filter-select" id="time-filter">
                 <option value="">All Time</option>
@@ -324,6 +324,9 @@
                 <label for="confidence-slider" style="white-space: nowrap; font-size: 0.95em;">Confidence: <span id="confidence-value">50</span>%</label>
                 <input type="range" id="confidence-slider" min="0" max="100" step="1" value="50" style="flex:1;">
             </div>
+            <button class="refresh-btn" id="sort-btn" title="Toggle sort order">
+                Sort 🔼
+            </button>
             <button class="refresh-btn" id="refresh-btn" onclick="loadEvents()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="23 4 23 10 17 10"></polyline>
@@ -362,6 +365,7 @@
     <script>
         let allEvents = [];
         let filteredEvents = [];
+        let currentSortOrder = 'desc'; // asc or desc
 
         async function loadEvents() {
             const loading = document.getElementById('loading');
@@ -418,7 +422,9 @@
                 return eventDate > now;
             });
             
-            const groups = [...new Set(allEvents.map(event => event.source_group))];
+            const sources = [...new Set(allEvents.map(event => {
+                return event.telegram_link ? event.source_group : 'Uploaded File';
+            }))];
             
             const lastEvent = allEvents.reduce((latest, event) => {
                 const eventDate = new Date(event.start_date);
@@ -427,30 +433,39 @@
 
             document.getElementById('total-events').textContent = allEvents.length;
             document.getElementById('upcoming-events').textContent = upcomingEvents.length;
-            document.getElementById('groups-count').textContent = groups.length;
+            document.getElementById('groups-count').textContent = sources.length;
             document.getElementById('last-updated').textContent = 
                 lastEvent.getTime() > 0 ? formatRelativeTime(lastEvent) : 'Never';
         }
 
         function updateGroupFilter() {
             const groupFilter = document.getElementById('group-filter');
-            const groups = [...new Set(allEvents.map(event => event.source_group))];
+            const sources = [...new Set(allEvents.map(event => {
+                return event.telegram_link ? event.source_group : 'Uploaded File';
+            }))];
             
-            // Clear existing options except "All Groups"
+            // Clear existing options except "All Sources"
             while (groupFilter.children.length > 1) {
                 groupFilter.removeChild(groupFilter.lastChild);
             }
             
-            groups.forEach(group => {
+            sources.forEach(source => {
                 const option = document.createElement('option');
-                option.value = group;
-                option.textContent = group;
+                option.value = source;
+                option.textContent = source;
                 groupFilter.appendChild(option);
             });
         }
 
         function renderEvents() {
             const container = document.getElementById('events-container');
+
+            // Sort events before rendering
+            filteredEvents.sort((a, b) => {
+                const dateA = a.start_date.includes('T') ? new Date(a.start_date) : new Date(parseInt(a.start_date) * 1000);
+                const dateB = b.start_date.includes('T') ? new Date(b.start_date) : new Date(parseInt(b.start_date) * 1000);
+                return currentSortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+            });
             
             if (filteredEvents.length === 0) {
                 container.innerHTML = `
@@ -505,14 +520,25 @@
                         ${escapeHtml(event.description.substring(0, 200))}${event.description.length > 200 ? '...' : ''}
                     </div>
                     <div class="event-source">
-                        <div class="source-group">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                            </svg>
-                            ${escapeHtml(event.source_group)}
-                            ${event.source_type === 'pdf' ? `<span title="Extracted from PDF" style="margin-left:6px;vertical-align:middle;">📄</span>` : ''}
-                            ${event.source_type === 'image' ? `<span title="Extracted from Image" style="margin-left:6px;vertical-align:middle;">🖼️</span>` : ''}
-                        </div>
+                        ${ ( (event.source_type === 'pdf' || event.source_type === 'image') && !event.telegram_link ) ? `
+                            <div class="source-group">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                Uploaded File
+                                ${event.source_type === 'pdf' ? `<span title="Extracted from PDF" style="margin-left:6px;vertical-align:middle;">📄</span>` : ''}
+                                ${event.source_type === 'image' ? `<span title="Extracted from Image" style="margin-left:6px;vertical-align:middle;">🖼️</span>` : ''}
+                            </div>
+                        ` : `
+                            <div class="source-group">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                                ${escapeHtml(event.source_group)}
+                                ${event.source_type === 'pdf' ? `<span title="Extracted from PDF" style="margin-left:6px;vertical-align:middle;">📄</span>` : ''}
+                                ${event.source_type === 'image' ? `<span title="Extracted from Image" style="margin-left:6px;vertical-align:middle;">🖼️</span>` : ''}
+                            </div>
+                        `}
                         <div style="display:flex;align-items:center;gap:8px;">
                             ${event.telegram_link ? `<a href="${event.telegram_link}" target="_blank" title="View Telegram Post" style="text-decoration:none;display:inline-flex;align-items:center;">🔗<span style="font-size:0.85em;margin-left:2px;">Post</span></a>` : ''}
                             <span>${formatRelativeTime(new Date(event.start_date))}</span>
@@ -524,7 +550,7 @@
 
         function filterEvents() {
             const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            const groupFilter = document.getElementById('group-filter').value;
+            const sourceFilter = document.getElementById('group-filter').value;
             const timeFilter = document.getElementById('time-filter').value;
             const confidenceThreshold = parseInt(document.getElementById('confidence-slider').value, 10) / 100;
 
@@ -533,10 +559,11 @@
                 const matchesSearch = !searchTerm || 
                     event.title.toLowerCase().includes(searchTerm) ||
                     event.description.toLowerCase().includes(searchTerm) ||
-                    event.location.toLowerCase().includes(searchTerm);
+                    (event.location && event.location.toLowerCase().includes(searchTerm));
 
-                // Group filter
-                const matchesGroup = !groupFilter || event.source_group === groupFilter;
+                // Source filter
+                const eventSource = event.telegram_link ? event.source_group : 'Uploaded File';
+                const matchesSource = !sourceFilter || eventSource === sourceFilter;
 
                 // Time filter
                 let matchesTime = true;
@@ -565,7 +592,7 @@
                 // Confidence filter
                 const matchesConfidence = typeof event.confidence_score === 'number' && event.confidence_score >= confidenceThreshold;
 
-                return matchesSearch && matchesGroup && matchesTime && matchesConfidence;
+                return matchesSearch && matchesSource && matchesTime && matchesConfidence;
             });
 
             renderEvents();
@@ -629,6 +656,13 @@
             filterEvents();
         });
         document.getElementById('upload-form').addEventListener('submit', uploadFile);
+
+        document.getElementById('sort-btn').addEventListener('click', () => {
+            currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+            const sortBtn = document.getElementById('sort-btn');
+            sortBtn.innerHTML = currentSortOrder === 'desc' ? 'Sort 🔼' : 'Sort 🔽';
+            renderEvents();
+        });
 
         async function uploadFile(event) {
             event.preventDefault();

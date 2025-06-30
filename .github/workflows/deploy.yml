@@ -26,23 +26,5 @@ jobs:
           cd ~/ai-telegram-calendar
           git pull origin main
           export DOMAIN_NAME=${{ secrets.DOMAIN_NAME }}
-          
-          # Bring services up
+          export CERTBOT_EMAIL=${{ secrets.CERTBOT_EMAIL }}
           docker compose -f docker-compose.yaml up -d --build
-
-          # Check for certificate and request if it doesn't exist
-          if [ ! -d "./data/certbot/conf/live/${{ secrets.DOMAIN_NAME }}" ]; then
-            echo "### Requesting Let's Encrypt certificate for ${{ secrets.DOMAIN_NAME }}..."
-            docker compose -f docker-compose.yaml run --rm --entrypoint "\
-              certbot certonly --webroot -w /var/www/certbot \
-                --email ${{ secrets.CERTBOT_EMAIL }} \
-                -d ${{ secrets.DOMAIN_NAME }} \
-                --agree-tos \
-                --no-eff-email \
-                --force-renewal" certbot
-          else
-            echo "### Certificate for ${{ secrets.DOMAIN_NAME }} already exists."
-          fi
-
-          # Reload Nginx to apply the certificate
-          docker compose -f docker-compose.yaml exec web-interface nginx -s reload

@@ -315,7 +315,7 @@
             </select>
             <select class="filter-select" id="time-filter">
                 <option value="">All Time</option>
-                <option value="upcoming">Upcoming</option>
+                <option value="upcoming" selected>Upcoming</option>
                 <option value="today">Today</option>
                 <option value="week">This Week</option>
                 <option value="month">This Month</option>
@@ -325,7 +325,19 @@
                 <input type="range" id="confidence-slider" min="0" max="100" step="1" value="50" style="flex:1;">
             </div>
             <button class="refresh-btn" id="sort-btn" title="Toggle sort order">
-                Sort 🔼
+                Sort 🔽
+            </button>
+        </div>
+
+        <form id="upload-form" class="controls" style="margin-bottom: 20px;">
+            <input type="file" id="file-input" class="search-box" accept=".pdf,image/*" required style="flex: initial;">
+            <button type="submit" class="refresh-btn" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Upload & Process
             </button>
             <button class="refresh-btn" id="refresh-btn" onclick="loadEvents()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -334,18 +346,6 @@
                     <path d="m3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                 </svg>
                 Refresh
-            </button>
-        </div>
-
-        <form id="upload-form" class="controls" style="margin-bottom: 20px;">
-            <input type="file" id="file-input" class="search-box" accept=".pdf,image/*" required style="flex: 1;">
-            <button type="submit" class="refresh-btn" style="background: linear-gradient(135deg, #667eea, #764ba2);">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="17 8 12 3 7 8"></polyline>
-                    <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-                Upload & Process
             </button>
         </form>
 
@@ -365,7 +365,7 @@
     <script>
         let allEvents = [];
         let filteredEvents = [];
-        let currentSortOrder = 'desc'; // asc or desc
+        let currentSortOrder = 'asc'; // asc or desc
 
         async function loadEvents() {
             const loading = document.getElementById('loading');
@@ -395,7 +395,7 @@
                 
                 updateStats();
                 updateGroupFilter();
-                renderEvents();
+                filterEvents();
                 
             } catch (error) {
                 console.error('Error loading events:', error);

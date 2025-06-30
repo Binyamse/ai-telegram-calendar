@@ -334,6 +334,18 @@
             </button>
         </div>
 
+        <form id="upload-form" class="controls" style="margin-bottom: 20px;">
+            <input type="file" id="file-input" class="search-box" accept=".pdf,image/*" required style="flex: 1;">
+            <button type="submit" class="refresh-btn" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Upload & Process
+            </button>
+        </form>
+
         <div id="error-message" class="error" style="display: none;"></div>
         <div id="loading" class="loading">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -616,6 +628,51 @@
             document.getElementById('confidence-value').textContent = this.value;
             filterEvents();
         });
+        document.getElementById('upload-form').addEventListener('submit', uploadFile);
+
+        async function uploadFile(event) {
+            event.preventDefault();
+            const form = event.target;
+            const fileInput = document.getElementById('file-input');
+            const file = fileInput.files[0];
+            const errorMessage = document.getElementById('error-message');
+            const loading = document.getElementById('loading');
+
+            if (!file) {
+                errorMessage.textContent = 'Please select a file to upload.';
+                errorMessage.style.display = 'block';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            loading.style.display = 'block';
+            errorMessage.style.display = 'none';
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || `Upload failed with status ${response.status}`);
+                }
+
+                alert('File processed successfully! New events have been added.');
+                loadEvents(); // Refresh the events list
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                errorMessage.textContent = `Error: ${error.message}`;
+                errorMessage.style.display = 'block';
+            } finally {
+                loading.style.display = 'none';
+                form.reset();
+            }
+        }
 
         // Load events on page load
         loadEvents();

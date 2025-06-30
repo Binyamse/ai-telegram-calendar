@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
 import aiohttp
+import uuid
+from aiohttp import web
 
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
@@ -489,6 +491,10 @@ class TelegramCalendarSync:
         os.makedirs(os.path.dirname(self.events_file), exist_ok=True)
         self.load_processed_messages()
 
+        # Web server for uploads
+        self.web_app = web.Application()
+        self.web_app.add_routes([web.post('/upload', self.handle_upload)])
+
         # Google Calendar client
         self.gcal = None
         if GOOGLE_CALENDAR_ID and os.path.exists(GOOGLE_CALENDAR_CREDENTIALS):
@@ -585,6 +591,80 @@ class TelegramCalendarSync:
         except Exception as e:
             logger.error(f"Error in save_events: {e}")
 
+    async def extract_text_from_media(self, file_path: str) -> tuple[Optional[str], Optional[str]]:
+        """Extracts text from a given file path (PDF or image)."""
+        source_type = None
+        text = None
+        file_ext = os.path.splitext(file_path)[1].lower()
+
+        if file_ext == '.pdf':
+            try:
+                doc = fitz.open(file_path)
+                text = "\n".join(page.get_text() for page in doc)
+                source_type = "pdf"
+                logger.info(f"Extracted text from PDF ({len(text)} chars)")
+            except Exception as e:
+                logger.error(f"PDF extraction failed: {e}")
+        elif file_ext in ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp']:
+            try:
+                img = Image.open(file_path)
+                text = pytesseract.image_to_string(img)
+                source_type = "image"
+                logger.info(f"Extracted text from image ({len(text)} chars)")
+            except Exception as e:
+                logger.error(f"Image OCR failed: {e}")
+        
+        return text, source_type
+
+    async def handle_upload(self, request: web.Request) -> web.Response:
+        """Handle file uploads from the web UI."""
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if not field or field.name != 'file':
+                return web.json_response({'error': 'File field is missing'}, status=400)
+
+            filename = field.filename
+            logger.info(f"Handling upload for file: {filename}")
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{filename}") as tmp:
+                while True:
+                    chunk = await field.read_chunk()
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+
+            text, source_type = await self.extract_text_from_media(tmp_path)
+
+            if not text or not source_type:
+                os.unlink(tmp_path)
+                return web.json_response({'error': 'Could not extract text from file or unsupported file type.'}, status=400)
+
+            reference_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            extracted_events = await self.llm_extractor.extract_events(text, reference_date)
+            
+            events = []
+            for event in extracted_events:
+                event.source_group = f"Uploaded File: {filename}"
+                event.source_message_id = int(uuid.uuid4().int & (1<<31)-1)
+                event.source_type = source_type
+                if not event.description:
+                    event.description = text[:500]
+                if event.confidence_score >= 0.5:
+                    events.append(event)
+                    logger.info(f"Extracted event from upload: {event.title}")
+
+            if events:
+                self.save_events(events, force_flush=True)
+                logger.info(f"Saved {len(events)} events from uploaded file {filename}")
+
+            os.unlink(tmp_path)
+            return web.json_response({'status': 'success', 'events_found': len(events)})
+        except Exception as e:
+            logger.error(f"Error handling upload: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
     async def process_message(self, message, group_name: str) -> List[CalendarEvent]:
         """Process a single message and extract calendar events using LLM"""
         events = []
@@ -611,28 +691,10 @@ class TelegramCalendarSync:
                     file_path = await message.download_media(file=tmpdir)
                     if file_path:
                         logger.info(f"Downloaded media to {file_path}")
-                        if file_path.lower().endswith('.pdf'):
-                            # Extract text from PDF using PyMuPDF
-                            try:
-                                doc = fitz.open(file_path)
-                                pdf_text = "\n".join(page.get_text() for page in doc)
-                                if pdf_text.strip():
-                                    extracted_texts.append(pdf_text)
-                                    extracted_types.append("pdf")
-                                    logger.info(f"Extracted text from PDF ({len(pdf_text)} chars)")
-                            except Exception as e:
-                                logger.error(f"PDF extraction failed: {e}")
-                        elif file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp')):
-                            # OCR for images
-                            try:
-                                img = Image.open(file_path)
-                                ocr_text = pytesseract.image_to_string(img)
-                                if ocr_text.strip():
-                                    extracted_texts.append(ocr_text)
-                                    extracted_types.append("image")
-                                    logger.info(f"Extracted text from image ({len(ocr_text)} chars)")
-                            except Exception as e:
-                                logger.error(f"Image OCR failed: {e}")
+                        media_text, media_type = await self.extract_text_from_media(file_path)
+                        if media_text and media_type:
+                            extracted_texts.append(media_text)
+                            extracted_types.append(media_type)
         except Exception as e:
             logger.error(f"Media extraction error: {e}")
 
@@ -791,6 +853,16 @@ class TelegramCalendarSync:
         except Exception as e:
             logger.error(f"Error in monitoring: {e}")
     
+    async def run_web_server(self):
+        """Run the aiohttp web server."""
+        runner = web.AppRunner(self.web_app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8080)
+        await site.start()
+        logger.info("Started web server on port 8080")
+        # Keep it running by returning a long-running awaitable
+        await asyncio.Event().wait()
+
     async def run(self, scan_recent: bool = True, monitor: bool = True):
         """Main run method"""
         try:
@@ -850,8 +922,10 @@ async def main():
     """Main entry point"""
     sync = TelegramCalendarSync()
     
-    # Run with both scanning and monitoring
-    await sync.run(scan_recent=True, monitor=True)
+    telegram_task = sync.run(scan_recent=True, monitor=True)
+    web_server_task = sync.run_web_server()
+
+    await asyncio.gather(telegram_task, web_server_task)
 
 if __name__ == "__main__":
     logger.info("Telegram Calendar Sync with LLM Event Extraction")

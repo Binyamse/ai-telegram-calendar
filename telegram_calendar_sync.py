@@ -459,6 +459,13 @@ class GoogleCalendarClient:
                     'dateTime': (event.end_date or event.start_date).isoformat(),
                     'timeZone': 'UTC',
                 },
+                'reminders': {
+                    'useDefault': False,
+                    'overrides': [
+                        {'method': 'popup', 'minutes': 24 * 60},  # 1 day before
+                        {'method': 'email', 'minutes': 24 * 60}   # 1 day before
+                    ],
+                },
             }
             # Only include location if present and non-empty
             if event.location:

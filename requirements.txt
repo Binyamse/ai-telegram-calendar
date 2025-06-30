@@ -8,3 +8,4 @@ asyncio
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
+reportlab>=4.0.0

@@ -26,4 +26,4 @@ jobs:
           cd ~/ai-telegram-calendar
           git pull origin main
           export DOMAIN_NAME=${{ secrets.DOMAIN_NAME }}
-          docker-compose -f docker-compose.yaml up -d --build
+          docker compose -f docker-compose.yaml up -d --build

@@ -500,7 +500,11 @@ class TelegramCalendarSync:
 
         # Web server for uploads
         self.web_app = web.Application()
-        self.web_app.add_routes([web.post('/upload', self.handle_upload)])
+        self.web_app.add_routes([
+            web.post('/upload', self.handle_upload),
+            web.post('/dismiss-event', self.handle_dismiss_event),
+            web.post('/clear-dismissed', self.handle_clear_dismissed)
+        ])
 
         # Google Calendar client
         self.gcal = None
@@ -670,6 +674,56 @@ class TelegramCalendarSync:
             return web.json_response({'status': 'success', 'events_found': len(events)})
         except Exception as e:
             logger.error(f"Error handling upload: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_dismiss_event(self, request: web.Request) -> web.Response:
+        """Handle dismissing an event from the UI."""
+        try:
+            data = await request.json()
+            event_id = data.get('eventId')
+            
+            if event_id is None:
+                return web.json_response({'error': 'eventId is required'}, status=400)
+            
+            # Load existing dismissed events
+            dismissed_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), 'dismissed_events.json')
+            dismissed_events = []
+            
+            if os.path.exists(dismissed_file):
+                try:
+                    with open(dismissed_file, 'r') as f:
+                        dismissed_events = json.load(f)
+                except:
+                    dismissed_events = []
+            
+            # Add new dismissed event if not already there
+            if event_id not in dismissed_events:
+                dismissed_events.append(event_id)
+                
+                # Save updated dismissed events
+                with open(dismissed_file, 'w') as f:
+                    json.dump(dismissed_events, f)
+                
+                logger.info(f"Event {event_id} dismissed")
+            
+            return web.json_response({'status': 'success'})
+        except Exception as e:
+            logger.error(f"Error dismissing event: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_clear_dismissed(self, request: web.Request) -> web.Response:
+        """Handle clearing all dismissed events."""
+        try:
+            dismissed_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), 'dismissed_events.json')
+            
+            # Remove the dismissed events file
+            if os.path.exists(dismissed_file):
+                os.remove(dismissed_file)
+                logger.info("All dismissed events cleared")
+            
+            return web.json_response({'status': 'success'})
+        except Exception as e:
+            logger.error(f"Error clearing dismissed events: {e}", exc_info=True)
             return web.json_response({'error': str(e)}, status=500)
 
     async def process_message(self, message, group_name: str) -> List[CalendarEvent]:

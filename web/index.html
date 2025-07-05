@@ -141,6 +141,32 @@
             box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
         }
 
+        .dismiss-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(0,0,0,0.05);
+            border: none;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #888;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            transition: all 0.2s ease;
+            z-index: 10;
+        }
+
+        .dismiss-btn:hover {
+            background: rgba(0,0,0,0.1);
+            color: #333;
+        }
+
         .event-header {
             display: flex;
             justify-content: between;
@@ -327,6 +353,9 @@
             <button class="refresh-btn" id="sort-btn" title="Toggle sort order">
                 Sort 🔽
             </button>
+            <button class="refresh-btn" id="clear-dismissed-btn" title="Show all dismissed events" onclick="clearDismissedEvents()" style="background: linear-gradient(135deg, #ed8936, #dd6b20);">
+                Show Dismissed
+            </button>
         </div>
 
         <form id="upload-form" class="controls" style="margin-bottom: 20px;">
@@ -366,6 +395,19 @@
         let allEvents = [];
         let filteredEvents = [];
         let currentSortOrder = 'asc'; // asc or desc
+        let dismissedEvents = [];
+
+        async function loadDismissedEvents() {
+            try {
+                const response = await fetch('./data/dismissed_events.json');
+                if (response.ok) {
+                    dismissedEvents = await response.json();
+                }
+            } catch (error) {
+                console.log('No dismissed events file found, starting fresh');
+                dismissedEvents = [];
+            }
+        }
 
         async function loadEvents() {
             const loading = document.getElementById('loading');
@@ -377,6 +419,9 @@
             eventsContainer.innerHTML = '';
 
             try {
+                // Load dismissed events first
+                await loadDismissedEvents();
+                
                 const response = await fetch('./data/events.json');
                 if (!response.ok) {
                     if (response.status === 404) {
@@ -390,7 +435,8 @@
                     throw new Error('Invalid events data format');
                 }
                 
-                allEvents = data;
+                allEvents = data.map((event, index) => ({ ...event, id: index }))
+                    .filter(event => !dismissedEvents.includes(event.id));
                 filteredEvents = [...allEvents];
                 
                 updateStats();
@@ -483,8 +529,14 @@
                 return;
             }
 
-            container.innerHTML = filteredEvents.map(event => `
+            container.innerHTML = filteredEvents.map(event => {
+                const now = new Date();
+                const eventDate = event.start_date.includes('T') ? new Date(event.start_date) : new Date(parseInt(event.start_date) * 1000);
+                const isUpcoming = eventDate > now;
+
+                return `
                 <div class="event-card">
+                    ${isUpcoming ? `<button class="dismiss-btn" title="Dismiss Event" onclick="dismissEvent(${event.id})">&times;</button>` : ''}
                     <div class="event-header">
                         <div class="event-title">${escapeHtml(event.title)}</div>
                         <div class="confidence-badge">${Math.round(event.confidence_score * 100)}%</div>
@@ -546,6 +598,41 @@
                     </div>
                 </div>
             `).join('');
+        }
+
+        function dismissEvent(eventId) {
+            // Add to dismissed events list
+            dismissedEvents.push(eventId);
+            
+            // Send to server to persist
+            fetch('/dismiss-event', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ eventId: eventId })
+            }).catch(error => {
+                console.error('Error saving dismissed event:', error);
+            });
+            
+            // Remove from current view
+            allEvents = allEvents.filter(event => event.id !== eventId);
+            updateStats();
+            filterEvents(); // Re-applies filters and re-renders the event list
+        }
+
+        function clearDismissedEvents() {
+            dismissedEvents = [];
+            
+            // Clear on server
+            fetch('/clear-dismissed', {
+                method: 'POST'
+            }).then(() => {
+                loadEvents(); // Reload all events
+            }).catch(error => {
+                console.error('Error clearing dismissed events:', error);
+                loadEvents(); // Reload anyway
+            });
         }
 
         function filterEvents() {

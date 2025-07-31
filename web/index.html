@@ -306,6 +306,63 @@
                 width: 100%;
             }
         }
+
+        /* Login Modal Styles */
+        #login-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #login-modal > div {
+            background: white;
+            padding: 32px;
+            border-radius: 16px;
+            max-width: 350px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+        }
+
+        #login-modal h2 {
+            margin-bottom: 16px;
+        }
+
+        #login-modal input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+
+        #login-modal button {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            color: white;
+            border: none;
+        }
+
+        #login-modal #send-login-code {
+            background: #4299e1;
+        }
+
+        #login-modal #verify-login-code {
+            background: #38a169;
+        }
+
+        #login-modal .error {
+            color: #c53030;
+            margin-top: 8px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -389,6 +446,22 @@
         <div class="events-grid" id="events-container">
             <!-- Events will be loaded here -->
         </div>
+    </div>
+
+    <div id="login-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.2);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:white;padding:32px;border-radius:16px;max-width:350px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
+        <h2 style="margin-bottom:16px;">Telegram Login</h2>
+        <div id="login-step-username">
+          <input type="text" id="tg-username" placeholder="Telegram username" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
+          <button id="send-login-code" style="width:100%;padding:10px;border-radius:8px;background:#4299e1;color:white;border:none;">Send Login Code</button>
+          <div id="login-error" style="color:#c53030;margin-top:8px;display:none;"></div>
+        </div>
+        <div id="login-step-code" style="display:none;">
+          <input type="text" id="tg-code" placeholder="Enter code" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
+          <button id="verify-login-code" style="width:100%;padding:10px;border-radius:8px;background:#38a169;color:white;border:none;">Verify & Login</button>
+          <div id="verify-error" style="color:#c53030;margin-top:8px;display:none;"></div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -795,6 +868,68 @@
                 form.reset();
             }
         }
+
+        function showLoginModal() {
+          document.getElementById('login-modal').style.display = 'flex';
+        }
+        function hideLoginModal() {
+          document.getElementById('login-modal').style.display = 'none';
+        }
+        function checkLogin() {
+          // Check cookie
+          if (!document.cookie.includes('tg_user=')) {
+            showLoginModal();
+          }
+        }
+        window.addEventListener('DOMContentLoaded', checkLogin);
+
+        document.getElementById('send-login-code').onclick = async function() {
+          const username = document.getElementById('tg-username').value.trim();
+          const errorDiv = document.getElementById('login-error');
+          errorDiv.style.display = 'none';
+          if (!username) {
+            errorDiv.textContent = 'Enter your Telegram username.';
+            errorDiv.style.display = 'block';
+            return;
+          }
+          const resp = await fetch('/login-request', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username})
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            errorDiv.textContent = data.error || 'Error sending code.';
+            errorDiv.style.display = 'block';
+            return;
+          }
+          document.getElementById('login-step-username').style.display = 'none';
+          document.getElementById('login-step-code').style.display = 'block';
+        };
+        document.getElementById('verify-login-code').onclick = async function() {
+          const username = document.getElementById('tg-username').value.trim();
+          const code = document.getElementById('tg-code').value.trim();
+          const errorDiv = document.getElementById('verify-error');
+          errorDiv.style.display = 'none';
+          if (!code) {
+            errorDiv.textContent = 'Enter the code sent to your Telegram.';
+            errorDiv.style.display = 'block';
+            return;
+          }
+          const resp = await fetch('/login-verify', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username, code})
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            errorDiv.textContent = data.error || 'Error verifying code.';
+            errorDiv.style.display = 'block';
+            return;
+          }
+          hideLoginModal();
+          location.reload();
+        };
 
         // Load events on page load
         loadEvents();

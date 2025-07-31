@@ -1,3 +1,8 @@
+# Reminder configuration from environment variables
+REMINDER_DAYS_BEFORE = int(os.getenv('REMINDER_DAYS_BEFORE', '2'))  # Days before event to send reminder
+REMINDER_CHECK_INTERVAL = int(os.getenv('REMINDER_CHECK_INTERVAL', '3600'))  # Seconds between checks (default: 1 hour)
+REMINDER_MESSAGE_TEMPLATE = os.getenv('REMINDER_MESSAGE_TEMPLATE',
+    '⏰ Reminder: Upcoming event in {days} days!\n\nTitle: {title}\nDate: {date}\n{location}{description}{link}')
 import fitz  # PyMuPDF
 from PIL import Image
 import pytesseract
@@ -13,6 +18,7 @@ from dataclasses import dataclass, asdict
 import aiohttp
 import uuid
 from aiohttp import web
+import time
 
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
@@ -20,6 +26,7 @@ from telethon.errors import SessionPasswordNeededError
 # Google Calendar imports
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+
 
 # Configuration from environment variables
 API_ID = int(os.getenv('TELEGRAM_API_ID', '0'))
@@ -39,6 +46,16 @@ TELEGRAM_CODE = os.getenv('TELEGRAM_CODE', '')  # For verification code
 TELEGRAM_2FA_PASSWORD = os.getenv('TELEGRAM_2FA_PASSWORD', '')  # For 2FA
 GOOGLE_CALENDAR_CREDENTIALS = os.getenv('GOOGLE_CALENDAR_CREDENTIALS', '/app/data/google-credentials.json')
 GOOGLE_CALENDAR_ID = os.getenv('GOOGLE_CALENDAR_ID', '')
+
+# Allowed Telegram usernames for UI access
+ALLOWED_TELEGRAM_USERNAMES = set(u.strip().lower() for u in os.getenv('ALLOWED_TELEGRAM_USERNAMES', '').split(',') if u.strip())
+
+
+# Telegram bot notification config
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+
+# Subscribed chat IDs file
+SUBSCRIBED_CHAT_IDS_FILE = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), 'subscribed_chat_ids.json')
 
 # Setup logging
 logging.basicConfig(
@@ -488,6 +505,148 @@ class GoogleCalendarClient:
             return None
 
 class TelegramCalendarSync:
+    def is_allowed_user(self, username: str) -> bool:
+        """Check if the Telegram username is allowed for UI access."""
+        return username and username.lower() in ALLOWED_TELEGRAM_USERNAMES
+    async def handle_login_request(self, request: web.Request) -> web.Response:
+        """Handle login request: verify allowed username and send code via bot."""
+        try:
+            data = await request.json()
+            username = data.get('username', '').strip().lower()
+            if not self.is_allowed_user(username):
+                return web.json_response({'error': 'User not allowed'}, status=403)
+            # ...existing code to send code via bot...
+            return web.json_response({'status': 'code_sent'})
+        except Exception as e:
+            logger.error(f"Error in login request: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_login_verify(self, request: web.Request) -> web.Response:
+        """Handle login code verification: check allowed user and code."""
+        try:
+            data = await request.json()
+            username = data.get('username', '').strip().lower()
+            code = data.get('code', '').strip()
+            if not self.is_allowed_user(username):
+                return web.json_response({'error': 'User not allowed'}, status=403)
+            # ...existing code to verify code...
+            return web.json_response({'status': 'verified'})
+        except Exception as e:
+            logger.error(f"Error in login verify: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+    def get_subscribed_chat_ids(self):
+        """Load subscribed chat IDs from file."""
+        if os.path.exists(SUBSCRIBED_CHAT_IDS_FILE):
+            try:
+                with open(SUBSCRIBED_CHAT_IDS_FILE, 'r') as f:
+                    return set(json.load(f))
+            except Exception as e:
+                logger.error(f"Error loading subscribed chat IDs: {e}")
+        return set()
+
+    def add_subscribed_chat_id(self, chat_id):
+        """Add a chat ID to the subscribed list."""
+        chat_ids = self.get_subscribed_chat_ids()
+        chat_ids.add(str(chat_id))
+        try:
+            with open(SUBSCRIBED_CHAT_IDS_FILE, 'w') as f:
+                json.dump(list(chat_ids), f)
+        except Exception as e:
+            logger.error(f"Error saving subscribed chat IDs: {e}")
+
+    def remove_subscribed_chat_id(self, chat_id):
+        """Remove a chat ID from the subscribed list."""
+        chat_ids = self.get_subscribed_chat_ids()
+        chat_ids.discard(str(chat_id))
+        try:
+            with open(SUBSCRIBED_CHAT_IDS_FILE, 'w') as f:
+                json.dump(list(chat_ids), f)
+        except Exception as e:
+            logger.error(f"Error saving subscribed chat IDs: {e}")
+
+    async def send_telegram_reminder(self, event: CalendarEvent):
+        """Send a reminder message for an event via Telegram bot to all subscribed users."""
+        if not TELEGRAM_BOT_TOKEN:
+            logger.warning("Telegram bot token not set for reminders.")
+            return
+        chat_ids = self.get_subscribed_chat_ids()
+        if not chat_ids:
+            logger.info("No subscribed users to send reminders.")
+            return
+        message = REMINDER_MESSAGE_TEMPLATE.format(
+            days=REMINDER_DAYS_BEFORE,
+            title=event.title,
+            date=event.start_date.strftime('%Y-%m-%d %H:%M'),
+            location=(f"Location: {event.location}\n" if event.location else ''),
+            description=(f"Description: {event.description[:200]}\n" if event.description else ''),
+            link=(f"Link: {event.telegram_link}\n" if event.telegram_link else '')
+        )
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            for chat_id in chat_ids:
+                payload = {
+                    "chat_id": chat_id,
+                    "text": message
+                }
+                try:
+                    async with session.post(url, json=payload) as resp:
+                        if resp.status == 200:
+                            logger.info(f"Sent reminder for event '{event.title}' to Telegram chat {chat_id}")
+                        else:
+                            logger.error(f"Failed to send Telegram reminder to {chat_id}: {await resp.text()}")
+                except Exception as e:
+                    logger.error(f"Error sending Telegram reminder to {chat_id}: {e}")
+
+    async def reminder_task(self):
+        """Background task to check for events in 2 days and send reminders."""
+        logger.info("Starting Telegram reminder background task...")
+        while True:
+            try:
+                # Load events
+                if os.path.exists(CALENDAR_OUTPUT_PATH):
+                    with open(CALENDAR_OUTPUT_PATH, 'r') as f:
+                        events_data = json.load(f)
+                else:
+                    events_data = []
+                now = datetime.now(timezone.utc)
+                target_date = now + timedelta(days=REMINDER_DAYS_BEFORE)
+                reminders = []
+                for e in events_data:
+                    try:
+                        event_dt = None
+                        if 'timestamp' in e:
+                            event_dt = datetime.fromtimestamp(e['timestamp'], tz=timezone.utc)
+                        elif 'start_date' in e:
+                            event_dt = datetime.fromisoformat(e['start_date'])
+                        if event_dt:
+                            delta = (event_dt - target_date).total_seconds()
+                            # ±12 hours window, configurable if needed
+                            if abs(delta) < 12*3600 and event_dt > now:
+                                reminders.append(CalendarEvent.from_dict(e))
+                    except Exception as ex:
+                        logger.error(f"Error parsing event for reminder: {ex}")
+                # Avoid duplicate reminders: keep track in a file
+                sent_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), 'sent_reminders.json')
+                sent_ids = set()
+                if os.path.exists(sent_file):
+                    try:
+                        sent_ids = set(json.load(open(sent_file)))
+                    except Exception:
+                        sent_ids = set()
+                new_sent = set()
+                for event in reminders:
+                    event_id = f"{event.title}_{event.start_date.isoformat()}"
+                    if event_id not in sent_ids:
+                        await self.send_telegram_reminder(event)
+                        new_sent.add(event_id)
+                # Update sent reminders file
+                if new_sent:
+                    with open(sent_file, 'w') as f:
+                        json.dump(list(sent_ids | new_sent), f)
+                logger.info(f"Checked reminders: {len(reminders)} events, {len(new_sent)} sent.")
+            except Exception as e:
+                logger.error(f"Error in reminder task: {e}")
+            await asyncio.sleep(REMINDER_CHECK_INTERVAL)
     def __init__(self):
         self.client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
         self.llm_extractor = LLMEventExtractor()
@@ -503,8 +662,37 @@ class TelegramCalendarSync:
         self.web_app.add_routes([
             web.post('/upload', self.handle_upload),
             web.post('/dismiss-event', self.handle_dismiss_event),
-            web.post('/clear-dismissed', self.handle_clear_dismissed)
+            web.post('/clear-dismissed', self.handle_clear_dismissed),
+            web.post('/subscribe-reminders', self.handle_subscribe_reminders),
+            web.post('/unsubscribe-reminders', self.handle_unsubscribe_reminders)
         ])
+    async def handle_subscribe_reminders(self, request: web.Request) -> web.Response:
+        """Handle user subscription to Telegram reminders."""
+        try:
+            data = await request.json()
+            chat_id = data.get('chat_id')
+            if not chat_id:
+                return web.json_response({'error': 'chat_id required'}, status=400)
+            self.add_subscribed_chat_id(chat_id)
+            logger.info(f"User {chat_id} subscribed to reminders.")
+            return web.json_response({'status': 'subscribed'})
+        except Exception as e:
+            logger.error(f"Error subscribing to reminders: {e}")
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def handle_unsubscribe_reminders(self, request: web.Request) -> web.Response:
+        """Handle user unsubscription from Telegram reminders."""
+        try:
+            data = await request.json()
+            chat_id = data.get('chat_id')
+            if not chat_id:
+                return web.json_response({'error': 'chat_id required'}, status=400)
+            self.remove_subscribed_chat_id(chat_id)
+            logger.info(f"User {chat_id} unsubscribed from reminders.")
+            return web.json_response({'status': 'unsubscribed'})
+        except Exception as e:
+            logger.error(f"Error unsubscribing from reminders: {e}")
+            return web.json_response({'error': str(e)}, status=500)
 
         # Google Calendar client
         self.gcal = None
@@ -924,6 +1112,10 @@ class TelegramCalendarSync:
         # Keep it running by returning a long-running awaitable
         await asyncio.Event().wait()
 
+        async def start_reminder_background(self, app):
+            # Start the reminder task in the background
+            asyncio.create_task(self.reminder_task())
+
     async def run(self, scan_recent: bool = True, monitor: bool = True):
         """Main run method"""
         try:
@@ -985,6 +1177,9 @@ async def main():
     
     telegram_task = sync.run(scan_recent=True, monitor=True)
     web_server_task = sync.run_web_server()
+
+        # Start reminder background task
+        sync.web_app.on_startup.append(sync.start_reminder_background)
 
     await asyncio.gather(telegram_task, web_server_task)
 

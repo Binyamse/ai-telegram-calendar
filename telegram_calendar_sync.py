@@ -515,7 +515,30 @@ class TelegramCalendarSync:
             username = data.get('username', '').strip().lower()
             if not self.is_allowed_user(username):
                 return web.json_response({'error': 'User not allowed'}, status=403)
-            # ...existing code to send code via bot...
+            # Generate a random 6-digit code
+            code = str(uuid.uuid4().int % 1000000).zfill(6)
+            # Store code in a temp file (per username)
+            code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{username}.json')
+            with open(code_file, 'w') as f:
+                json.dump({'code': code, 'timestamp': time.time()}, f)
+            # Send code via Telegram bot
+            if TELEGRAM_BOT_TOKEN:
+                async with aiohttp.ClientSession() as session:
+                    # Find user chat ID via username
+                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat"
+                    payload = {"chat_id": f"@{username}"}
+                    async with session.post(url, json=payload) as resp:
+                        chat_info = await resp.json()
+                        chat_id = None
+                        if chat_info.get('ok') and chat_info.get('result', {}).get('id'):
+                            chat_id = chat_info['result']['id']
+                        if chat_id:
+                            msg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                            msg_payload = {"chat_id": chat_id, "text": f"Your login code: {code}"}
+                            await session.post(msg_url, json=msg_payload)
+                        else:
+                            logger.warning(f"Could not find chat_id for @{username}")
+            logger.info(f"Sent login code to @{username}")
             return web.json_response({'status': 'code_sent'})
         except Exception as e:
             logger.error(f"Error in login request: {e}")
@@ -529,8 +552,20 @@ class TelegramCalendarSync:
             code = data.get('code', '').strip()
             if not self.is_allowed_user(username):
                 return web.json_response({'error': 'User not allowed'}, status=403)
-            # ...existing code to verify code...
-            return web.json_response({'status': 'verified'})
+            code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{username}.json')
+            if not os.path.exists(code_file):
+                return web.json_response({'error': 'No code found. Please request a new code.'}, status=400)
+            with open(code_file, 'r') as f:
+                code_data = json.load(f)
+            # Check code and expiry (valid for 10 min)
+            if code_data['code'] != code or time.time() - code_data['timestamp'] > 600:
+                return web.json_response({'error': 'Invalid or expired code.'}, status=400)
+            # Set session cookie
+            response = web.json_response({'status': 'verified'})
+            response.set_cookie('tg_user', username, max_age=86400, httponly=True)
+            # Remove code file after successful login
+            os.remove(code_file)
+            return response
         except Exception as e:
             logger.error(f"Error in login verify: {e}")
             return web.json_response({'error': str(e)}, status=500)
@@ -1177,10 +1212,8 @@ async def main():
     
     telegram_task = sync.run(scan_recent=True, monitor=True)
     web_server_task = sync.run_web_server()
-
-        # Start reminder background task
-        sync.web_app.on_startup.append(sync.start_reminder_background)
-
+    # Start reminder background task
+    sync.web_app.on_startup.append(sync.start_reminder_background)
     await asyncio.gather(telegram_task, web_server_task)
 
 if __name__ == "__main__":

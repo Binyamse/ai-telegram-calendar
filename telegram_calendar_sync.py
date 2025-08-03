@@ -1,32 +1,25 @@
-# Reminder configuration from environment variables
-REMINDER_DAYS_BEFORE = int(os.getenv('REMINDER_DAYS_BEFORE', '2'))  # Days before event to send reminder
-REMINDER_CHECK_INTERVAL = int(os.getenv('REMINDER_CHECK_INTERVAL', '3600'))  # Seconds between checks (default: 1 hour)
-REMINDER_MESSAGE_TEMPLATE = os.getenv('REMINDER_MESSAGE_TEMPLATE',
-    '⏰ Reminder: Upcoming event in {days} days!\n\nTitle: {title}\nDate: {date}\n{location}{description}{link}')
-import fitz  # PyMuPDF
-from PIL import Image
-import pytesseract
-import tempfile
-import asyncio
 import os
 import json
+import uuid
+import time
+import aiohttp
+import tempfile
 import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
-import aiohttp
-import uuid
-from aiohttp import web
-import time
-
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
-
 # Google Calendar imports
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
+# Reminder configuration from environment variables
+REMINDER_DAYS_BEFORE = int(os.getenv('REMINDER_DAYS_BEFORE', '2'))  # Days before event to send reminder
+REMINDER_CHECK_INTERVAL = int(os.getenv('REMINDER_CHECK_INTERVAL', '3600'))  # Seconds between checks (default: 1 hour)
+REMINDER_MESSAGE_TEMPLATE = os.getenv('REMINDER_MESSAGE_TEMPLATE',
+    '⏰ Reminder: Upcoming event in {days} days!\n\nTitle: {title}\nDate: {date}\n{location}{description}{link}')
 
 # Configuration from environment variables
 API_ID = int(os.getenv('TELEGRAM_API_ID', '0'))

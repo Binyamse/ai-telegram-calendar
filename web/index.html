@@ -700,7 +700,7 @@
             dismissedEvents.push(eventId);
             
             // Send to server to persist
-            fetch('/dismiss-event', {
+            fetch('./dismiss-event', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -720,7 +720,7 @@
             dismissedEvents = [];
             
             // Clear on server
-            fetch('/clear-dismissed', {
+            fetch('./clear-dismissed', {
                 method: 'POST'
             }).then(() => {
                 loadEvents(); // Reload all events
@@ -867,7 +867,7 @@
             errorMessage.style.display = 'none';
 
             try {
-                const response = await fetch('/upload', {
+                const response = await fetch('./upload', {
                     method: 'POST',
                     body: formData,
                 });
@@ -948,7 +948,8 @@
             showLoading('Sending login code...');
             
             try {
-                const resp = await fetch('/login-request', {
+                // Use relative URLs that work regardless of domain or path structure
+                const resp = await fetch('./login-request', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username})
@@ -990,7 +991,7 @@
             showLoading('Verifying code...');
             
             try {
-                const resp = await fetch('/login-verify', {
+                const resp = await fetch('./login-verify', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username, code})
@@ -1016,6 +1017,7 @@
                 errorDiv.style.display = 'block';
                 document.getElementById('login-step-code').style.display = 'block';
             }
+        };
         };
 
         // Load events on page load

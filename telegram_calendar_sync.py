@@ -14,6 +14,7 @@ from telethon.errors import SessionPasswordNeededError
 # Google Calendar imports
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from aiohttp import web
 
 # Reminder configuration from environment variables
 REMINDER_DAYS_BEFORE = int(os.getenv('REMINDER_DAYS_BEFORE', '2'))  # Days before event to send reminder

@@ -510,30 +510,57 @@ class TelegramCalendarSync:
             username = data.get('username', '').strip().lower()
             if not self.is_allowed_user(username):
                 return web.json_response({'error': 'User not allowed'}, status=403)
+            
+            # Make sure we have a bot token
+            if not TELEGRAM_BOT_TOKEN:
+                return web.json_response({'error': 'Telegram bot not configured on server'}, status=500)
+                
             # Generate a random 6-digit code
             code = str(uuid.uuid4().int % 1000000).zfill(6)
+            
             # Store code in a temp file (per username)
             code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{username}.json')
             with open(code_file, 'w') as f:
                 json.dump({'code': code, 'timestamp': time.time()}, f)
+                
             # Send code via Telegram bot
-            if TELEGRAM_BOT_TOKEN:
-                async with aiohttp.ClientSession() as session:
-                    # Find user chat ID via username
-                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat"
-                    payload = {"chat_id": f"@{username}"}
+            code_sent = False
+            async with aiohttp.ClientSession() as session:
+                # Find user chat ID via username
+                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat"
+                payload = {"chat_id": f"@{username}"}
+                try:
                     async with session.post(url, json=payload) as resp:
                         chat_info = await resp.json()
                         chat_id = None
                         if chat_info.get('ok') and chat_info.get('result', {}).get('id'):
                             chat_id = chat_info['result']['id']
+                            
                         if chat_id:
+                            # Send message with code
                             msg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
                             msg_payload = {"chat_id": chat_id, "text": f"Your login code: {code}"}
-                            await session.post(msg_url, json=msg_payload)
+                            async with session.post(msg_url, json=msg_payload) as msg_resp:
+                                msg_result = await msg_resp.json()
+                                if msg_result.get('ok'):
+                                    code_sent = True
+                                    logger.info(f"Sent login code to @{username}")
+                                else:
+                                    logger.error(f"Failed to send message: {msg_result}")
                         else:
-                            logger.warning(f"Could not find chat_id for @{username}")
-            logger.info(f"Sent login code to @{username}")
+                            logger.warning(f"Could not find chat_id for @{username}. Make sure user has messaged the bot first.")
+                except Exception as e:
+                    logger.error(f"Telegram API error: {e}")
+                    
+            if not code_sent:
+                # Clean up the code file if we couldn't send
+                if os.path.exists(code_file):
+                    os.remove(code_file)
+                return web.json_response(
+                    {'error': 'Could not send code to your Telegram account. Make sure you have messaged the bot first.'}, 
+                    status=400
+                )
+                
             return web.json_response({'status': 'code_sent'})
         except Exception as e:
             logger.error(f"Error in login request: {e}")
@@ -687,6 +714,13 @@ class TelegramCalendarSync:
         os.makedirs(os.path.dirname(self.events_file), exist_ok=True)
         self.load_processed_messages()
 
+        # Google Calendar client
+        self.gcal = None
+        if GOOGLE_CALENDAR_ID and os.path.exists(GOOGLE_CALENDAR_CREDENTIALS):
+            self.gcal = GoogleCalendarClient(GOOGLE_CALENDAR_CREDENTIALS, GOOGLE_CALENDAR_ID)
+        else:
+            logger.info('Google Calendar integration not enabled (missing credentials or calendar ID)')
+
         # Web server for uploads
         self.web_app = web.Application()
         self.web_app.add_routes([
@@ -694,7 +728,9 @@ class TelegramCalendarSync:
             web.post('/dismiss-event', self.handle_dismiss_event),
             web.post('/clear-dismissed', self.handle_clear_dismissed),
             web.post('/subscribe-reminders', self.handle_subscribe_reminders),
-            web.post('/unsubscribe-reminders', self.handle_unsubscribe_reminders)
+            web.post('/unsubscribe-reminders', self.handle_unsubscribe_reminders),
+            web.post('/login-request', self.handle_login_request),
+            web.post('/login-verify', self.handle_login_verify)
         ])
     async def handle_subscribe_reminders(self, request: web.Request) -> web.Response:
         """Handle user subscription to Telegram reminders."""
@@ -723,13 +759,6 @@ class TelegramCalendarSync:
         except Exception as e:
             logger.error(f"Error unsubscribing from reminders: {e}")
             return web.json_response({'error': str(e)}, status=500)
-
-        # Google Calendar client
-        self.gcal = None
-        if GOOGLE_CALENDAR_ID and os.path.exists(GOOGLE_CALENDAR_CREDENTIALS):
-            self.gcal = GoogleCalendarClient(GOOGLE_CALENDAR_CREDENTIALS, GOOGLE_CALENDAR_ID)
-        else:
-            logger.info('Google Calendar integration not enabled (missing credentials or calendar ID)')
 
     def load_processed_messages(self):
         """Load previously processed message IDs, robust to file errors and empty files."""
@@ -1142,9 +1171,9 @@ class TelegramCalendarSync:
         # Keep it running by returning a long-running awaitable
         await asyncio.Event().wait()
 
-        async def start_reminder_background(self, app):
-            # Start the reminder task in the background
-            asyncio.create_task(self.reminder_task())
+    async def start_reminder_background(self, app):
+        # Start the reminder task in the background
+        asyncio.create_task(self.reminder_task())
 
     async def run(self, scan_recent: bool = True, monitor: bool = True):
         """Main run method"""
@@ -1205,11 +1234,17 @@ async def main():
     """Main entry point"""
     sync = TelegramCalendarSync()
     
-    telegram_task = sync.run(scan_recent=True, monitor=True)
-    web_server_task = sync.run_web_server()
-    # Start reminder background task
+    # Register reminder task to start on web app startup
     sync.web_app.on_startup.append(sync.start_reminder_background)
-    await asyncio.gather(telegram_task, web_server_task)
+    
+    # Create tasks to run concurrently
+    tasks = [
+        sync.run(scan_recent=True, monitor=True),
+        sync.run_web_server()
+    ]
+    
+    # Run all tasks concurrently
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     logger.info("Telegram Calendar Sync with LLM Event Extraction")

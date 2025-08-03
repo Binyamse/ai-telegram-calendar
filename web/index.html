@@ -448,21 +448,42 @@
         </div>
     </div>
 
-    <div id="login-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.2);z-index:1000;align-items:center;justify-content:center;">
-      <div style="background:white;padding:32px;border-radius:16px;max-width:350px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
-        <h2 style="margin-bottom:16px;">Telegram Login</h2>
+    <div id="login-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:white;padding:32px;border-radius:16px;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
+        <h2 style="margin-bottom:16px;text-align:center;">🔐 Telegram Login Required</h2>
+        <p style="margin-bottom:16px;color:#666;text-align:center;font-size:14px;">Access is restricted. Please log in with your Telegram account.</p>
+        
         <div id="login-step-username">
-          <input type="text" id="tg-username" placeholder="Telegram username" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
+          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Step 1:</strong> Enter your Telegram username (without @)</p>
+          <input type="text" id="tg-username" placeholder="YourTelegramUsername" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
           <button id="send-login-code" style="width:100%;padding:10px;border-radius:8px;background:#4299e1;color:white;border:none;">Send Login Code</button>
           <div id="login-error" style="color:#c53030;margin-top:8px;display:none;"></div>
+          <p style="margin-top:16px;font-size:12px;color:#666;text-align:center;">Make sure you've interacted with our bot first.</p>
         </div>
+        
         <div id="login-step-code" style="display:none;">
-          <input type="text" id="tg-code" placeholder="Enter code" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
+          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Step 2:</strong> Enter the code sent to your Telegram</p>
+          <input type="text" id="tg-code" placeholder="Enter 6-digit code" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
           <button id="verify-login-code" style="width:100%;padding:10px;border-radius:8px;background:#38a169;color:white;border:none;">Verify & Login</button>
           <div id="verify-error" style="color:#c53030;margin-top:8px;display:none;"></div>
+          <div style="display:flex;justify-content:center;margin-top:16px;">
+            <button id="back-to-username" style="background:none;border:none;color:#4299e1;cursor:pointer;font-size:14px;">← Back</button>
+          </div>
+        </div>
+        
+        <div id="login-loading" style="display:none;text-align:center;">
+          <div style="display:inline-block;width:30px;height:30px;border:3px solid rgba(66,153,225,0.3);border-radius:50%;border-top-color:#4299e1;animation:spin 1s linear infinite;margin:10px 0;"></div>
+          <p id="loading-text">Sending login code...</p>
         </div>
       </div>
     </div>
+    
+    <style>
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    </style>
 
     <script>
         let allEvents = [];
@@ -870,69 +891,131 @@
         }
 
                 function showLoginModal() {
-                    document.getElementById('login-modal').style.display = 'flex';
-                    document.getElementById('main-container').style.display = 'none';
-                }
-                function hideLoginModal() {
-                    document.getElementById('login-modal').style.display = 'none';
-                    document.getElementById('main-container').style.display = 'block';
-                }
-                function checkLogin() {
-                    // Check cookie
-                    if (!document.cookie.includes('tg_user=')) {
-                        showLoginModal();
-                    } else {
-                        hideLoginModal();
-                    }
-                }
-                window.addEventListener('DOMContentLoaded', checkLogin);
+            document.getElementById('login-modal').style.display = 'flex';
+            document.getElementById('main-container').style.display = 'none';
+        }
+        
+        function hideLoginModal() {
+            document.getElementById('login-modal').style.display = 'none';
+            document.getElementById('main-container').style.display = 'block';
+        }
+        
+        function checkLogin() {
+            // Check cookie
+            if (!document.cookie.includes('tg_user=')) {
+                showLoginModal();
+                // Focus on username field
+                setTimeout(() => {
+                    const usernameField = document.getElementById('tg-username');
+                    if (usernameField) usernameField.focus();
+                }, 100);
+            } else {
+                hideLoginModal();
+            }
+        }
+        
+        function showLoading(message) {
+            document.getElementById('login-step-username').style.display = 'none';
+            document.getElementById('login-step-code').style.display = 'none';
+            document.getElementById('loading-text').textContent = message;
+            document.getElementById('login-loading').style.display = 'block';
+        }
+        
+        function hideLoading() {
+            document.getElementById('login-loading').style.display = 'none';
+        }
+        
+        window.addEventListener('DOMContentLoaded', checkLogin);
+        
+        // Back button functionality
+        document.getElementById('back-to-username').addEventListener('click', function() {
+            document.getElementById('login-step-code').style.display = 'none';
+            document.getElementById('login-step-username').style.display = 'block';
+            document.getElementById('tg-username').focus();
+        });
 
         document.getElementById('send-login-code').onclick = async function() {
-          const username = document.getElementById('tg-username').value.trim();
-          const errorDiv = document.getElementById('login-error');
-          errorDiv.style.display = 'none';
-          if (!username) {
-            errorDiv.textContent = 'Enter your Telegram username.';
-            errorDiv.style.display = 'block';
-            return;
-          }
-          const resp = await fetch('/login-request', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username})
-          });
-          const data = await resp.json();
-          if (!resp.ok) {
-            errorDiv.textContent = data.error || 'Error sending code.';
-            errorDiv.style.display = 'block';
-            return;
-          }
-          document.getElementById('login-step-username').style.display = 'none';
-          document.getElementById('login-step-code').style.display = 'block';
+            const username = document.getElementById('tg-username').value.trim();
+            const errorDiv = document.getElementById('login-error');
+            errorDiv.style.display = 'none';
+            
+            if (!username) {
+                errorDiv.textContent = 'Please enter your Telegram username.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            showLoading('Sending login code...');
+            
+            try {
+                const resp = await fetch('/login-request', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username})
+                });
+                
+                const data = await resp.json();
+                hideLoading();
+                
+                if (!resp.ok) {
+                    errorDiv.textContent = data.error || 'Error sending code.';
+                    errorDiv.style.display = 'block';
+                    document.getElementById('login-step-username').style.display = 'block';
+                    return;
+                }
+                
+                document.getElementById('login-step-username').style.display = 'none';
+                document.getElementById('login-step-code').style.display = 'block';
+                document.getElementById('tg-code').focus();
+            } catch (error) {
+                hideLoading();
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+                document.getElementById('login-step-username').style.display = 'block';
+            }
         };
+        
         document.getElementById('verify-login-code').onclick = async function() {
-          const username = document.getElementById('tg-username').value.trim();
-          const code = document.getElementById('tg-code').value.trim();
-          const errorDiv = document.getElementById('verify-error');
-          errorDiv.style.display = 'none';
-          if (!code) {
-            errorDiv.textContent = 'Enter the code sent to your Telegram.';
-            errorDiv.style.display = 'block';
-            return;
-          }
-          const resp = await fetch('/login-verify', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username, code})
-          });
-          const data = await resp.json();
-          if (!resp.ok) {
-            errorDiv.textContent = data.error || 'Error verifying code.';
-            errorDiv.style.display = 'block';
-            return;
-          }
-          hideLoginModal();
-          location.reload();
+            const username = document.getElementById('tg-username').value.trim();
+            const code = document.getElementById('tg-code').value.trim();
+            const errorDiv = document.getElementById('verify-error');
+            errorDiv.style.display = 'none';
+            
+            if (!code) {
+                errorDiv.textContent = 'Please enter the code sent to your Telegram.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            showLoading('Verifying code...');
+            
+            try {
+                const resp = await fetch('/login-verify', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, code})
+                });
+                
+                const data = await resp.json();
+                
+                if (!resp.ok) {
+                    hideLoading();
+                    errorDiv.textContent = data.error || 'Error verifying code.';
+                    errorDiv.style.display = 'block';
+                    document.getElementById('login-step-code').style.display = 'block';
+                    return;
+                }
+                
+                // Login success!
+                hideLoading();
+                hideLoginModal();
+                location.reload();
+            } catch (error) {
+                hideLoading();
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+                document.getElementById('login-step-code').style.display = 'block';
+            }
         };
 
         // Load events on page load

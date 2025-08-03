@@ -366,7 +366,7 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="main-container" style="display:none;">
         <div class="header">
             <h1>📅 Telegram Calendar Events</h1>
             <p>AI-extracted events from your Telegram groups</p>
@@ -869,19 +869,23 @@
             }
         }
 
-        function showLoginModal() {
-          document.getElementById('login-modal').style.display = 'flex';
-        }
-        function hideLoginModal() {
-          document.getElementById('login-modal').style.display = 'none';
-        }
-        function checkLogin() {
-          // Check cookie
-          if (!document.cookie.includes('tg_user=')) {
-            showLoginModal();
-          }
-        }
-        window.addEventListener('DOMContentLoaded', checkLogin);
+                function showLoginModal() {
+                    document.getElementById('login-modal').style.display = 'flex';
+                    document.getElementById('main-container').style.display = 'none';
+                }
+                function hideLoginModal() {
+                    document.getElementById('login-modal').style.display = 'none';
+                    document.getElementById('main-container').style.display = 'block';
+                }
+                function checkLogin() {
+                    // Check cookie
+                    if (!document.cookie.includes('tg_user=')) {
+                        showLoginModal();
+                    } else {
+                        hideLoginModal();
+                    }
+                }
+                window.addEventListener('DOMContentLoaded', checkLogin);
 
         document.getElementById('send-login-code').onclick = async function() {
           const username = document.getElementById('tg-username').value.trim();

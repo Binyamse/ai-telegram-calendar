@@ -67,9 +67,13 @@ services:
       - TELEGRAM_PHONE_NUMBER=${TELEGRAM_PHONE_NUMBER}
       - TELEGRAM_CODE=${TELEGRAM_CODE:-}  # Optional: for two-step verification
       - TELEGRAM_2FA_PASSWORD=${TELEGRAM_2FA_PASSWORD:-}  # Optional: for two-step verification
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # For login codes and notifications
       
       # Telegram groups to monitor (comma-separated)
       - TELEGRAM_GROUPS=${TELEGRAM_GROUPS}
+      
+      # Allowed Telegram usernames for UI access (comma-separated)
+      - ALLOWED_TELEGRAM_USERNAMES=${ALLOWED_TELEGRAM_USERNAMES:-}
       
       # LLM API keys (at least one required)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

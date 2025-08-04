@@ -456,8 +456,24 @@
         <h2 style="margin-bottom:16px;text-align:center;">🔐 Telegram Login Required</h2>
         <p style="margin-bottom:16px;color:#666;text-align:center;font-size:14px;">Access is restricted. Please log in with your Telegram account.</p>
         
+        <!-- Telegram Login Widget -->
+        <div id="telegram-login" style="text-align:center;margin-bottom:20px;">
+          <p style="margin-bottom:15px;font-size:14px;color:#444;"><strong>Option 1:</strong> One-click login with Telegram</p>
+          <div id="telegram-login-widget" style="margin:0 auto;"></div>
+          <script async src="https://telegram.org/js/telegram-widget.js?22" 
+                  data-telegram-login="YOUR_BOT_NAME" 
+                  data-size="large"
+                  data-auth-url="/api/telegram-login"
+                  data-request-access="write">
+          </script>
+          <div style="margin-top:15px;border-top:1px solid #eee;padding-top:15px;">
+            <p style="color:#666;font-size:13px;font-style:italic;">Or use the manual login method below</p>
+          </div>
+        </div>
+        
+        <!-- Manual Login Option -->
         <div id="login-step-username">
-          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Step 1:</strong> Enter your Telegram username (without @) or ID</p>
+          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Option 2:</strong> Enter your Telegram username (without @) or ID</p>
           <input type="text" id="tg-username" placeholder="YourTelegramUsername or id:123456789" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
           <button id="send-login-code" style="width:100%;padding:10px;border-radius:8px;background:#4299e1;color:white;border:none;">Send Login Code</button>
           <div id="login-error" style="color:#c53030;margin-top:8px;display:none;"></div>
@@ -495,6 +511,37 @@
     </style>
 
     <script>
+        // Function to update the Telegram Login widget with correct bot name
+        function updateTelegramLoginWidget() {
+            fetch('/api-check')
+                .then(response => response.json())
+                .then(data => {
+                    // Try to fetch bot info to get its name
+                    return fetch('/api/api-check');
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Check if we received any bot info from the API
+                    if (data && data.status === 'ok') {
+                        // Find the Telegram Login script element
+                        const scriptElement = document.querySelector('script[data-telegram-login]');
+                        if (scriptElement) {
+                            // Update the bot name if it's set in environment
+                            if (localStorage.getItem('telegram_bot_name')) {
+                                scriptElement.setAttribute('data-telegram-login', localStorage.getItem('telegram_bot_name'));
+                                console.log('Updated Telegram Login widget with bot name from storage');
+                            } else {
+                                // Try to get bot name from API (would need to be implemented server-side)
+                                console.log('Bot name not found in storage, using default');
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching bot info:', error);
+                });
+        }
+
         // Function to show help for finding Telegram ID
         function showIdHelp() {
             const helpText = `
@@ -1027,7 +1074,26 @@
             document.getElementById('login-loading').style.display = 'none';
         }
         
-        window.addEventListener('DOMContentLoaded', checkLogin);
+        window.addEventListener('DOMContentLoaded', function() {
+            checkLogin();
+            updateTelegramLoginWidget();
+            
+            // Try to fetch the bot name using our test script
+            fetch('/api-check')
+                .then(response => response.json())
+                .then(data => {
+                    // Find the Telegram Login script
+                    const scriptElement = document.querySelector('script[data-telegram-login]');
+                    if (scriptElement && scriptElement.getAttribute('data-telegram-login') === 'YOUR_BOT_NAME') {
+                        // Dynamically update to use actual bot name (if we have it)
+                        if (data.bot_name) {
+                            scriptElement.setAttribute('data-telegram-login', data.bot_name);
+                            localStorage.setItem('telegram_bot_name', data.bot_name);
+                        }
+                    }
+                })
+                .catch(err => console.log('Could not fetch bot info:', err));
+        });
         
         // Back button functionality
         document.getElementById('back-to-username').addEventListener('click', function() {

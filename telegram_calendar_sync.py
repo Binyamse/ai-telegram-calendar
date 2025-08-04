@@ -12,6 +12,7 @@ from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
+from telegram_login import TelegramLoginVerifier, extract_user_data
 # Google Calendar imports
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -500,13 +501,101 @@ class GoogleCalendarClient:
             return None
 
 class TelegramCalendarSync:
-    def is_allowed_user(self, username: str) -> bool:
-        """Check if the Telegram username is allowed for UI access."""
+    def is_allowed_user(self, username: str = None, user_id: str = None) -> bool:
+        """
+        Check if the Telegram username or user_id is allowed for UI access.
+        
+        Args:
+            username: Telegram username (without @)
+            user_id: Telegram user ID
+        
+        Returns:
+            True if user is allowed, False otherwise
+        """
+        # Get allowed user IDs (if any)
+        allowed_user_ids = set(u.strip() for u in os.getenv('ALLOWED_TELEGRAM_USER_IDS', '').split(',') if u.strip())
+        
         # Special case for user IDs in the format "id:123456789"
         if username and username.startswith("id:"):
-            # Always allow direct user IDs for now (we'll validate them during code sending)
+            extracted_id = username[3:].strip()
+            return extracted_id in allowed_user_ids
+        
+        # Check if username is allowed
+        if username and username.lower() in ALLOWED_TELEGRAM_USERNAMES:
             return True
-        return username and username.lower() in ALLOWED_TELEGRAM_USERNAMES
+            
+        # Check if user_id is allowed
+        if user_id and user_id in allowed_user_ids:
+            return True
+            
+        return False
+        
+    async def handle_telegram_login(self, request: web.Request) -> web.Response:
+        """
+        Handle Telegram Login widget authentication.
+        
+        This endpoint is called by the Telegram Login widget after a user 
+        successfully authenticates with Telegram.
+        """
+        logger.info("Received Telegram Login request")
+        
+        # Check if Telegram Login verification is enabled
+        if not self.telegram_login_verifier:
+            return web.json_response({
+                'error': 'Telegram Login not configured on server'
+            }, status=500)
+        
+        # Extract query parameters
+        auth_data = dict(request.query)
+        logger.debug(f"Telegram Login auth data: {auth_data}")
+        
+        # Verify the authentication data
+        is_valid, error_message = self.telegram_login_verifier.verify_telegram_auth(auth_data)
+        
+        if not is_valid:
+            logger.warning(f"Invalid Telegram Login: {error_message}")
+            return web.json_response({
+                'error': f'Invalid authentication: {error_message}'
+            }, status=403)
+        
+        # Extract user information
+        user_data = extract_user_data(auth_data)
+        logger.info(f"Authenticated Telegram user: {user_data.get('username') or user_data.get('id')}")
+        
+        # Check if user is in whitelist
+        username = user_data.get('username', '').lower()
+        user_id = user_data.get('id')
+        
+        if not self.is_allowed_user(username=username, user_id=user_id):
+            logger.warning(f"Unauthorized access attempt from: {username or user_id}")
+            return web.json_response({
+                'error': 'You are not authorized to access this application'
+            }, status=403)
+        
+        # User is authorized - set session cookie
+        response = web.HTTPFound('/')  # Redirect to home page
+        response.set_cookie(
+            'tg_user', 
+            username or f"user_{user_id}", 
+            max_age=86400, 
+            httponly=True
+        )
+        
+        # Add user data to cookie as well (optional)
+        response.set_cookie(
+            'tg_user_data',
+            json.dumps({
+                'id': user_id,
+                'username': username,
+                'first_name': user_data.get('first_name'),
+                'last_name': user_data.get('last_name', ''),
+                'photo_url': user_data.get('photo_url', ''),
+            }),
+            max_age=86400
+        )
+        
+        logger.info(f"Telegram Login successful for {username or user_id}")
+        return response
     async def handle_login_request(self, request: web.Request) -> web.Response:
         """Handle login request: verify allowed username and send code via bot."""
         try:
@@ -756,7 +845,7 @@ class TelegramCalendarSync:
             await asyncio.sleep(REMINDER_CHECK_INTERVAL)
     async def handle_api_check(self, request: web.Request) -> web.Response:
         """Debug endpoint to verify API connectivity"""
-        return web.json_response({
+        response_data = {
             'status': 'ok',
             'message': 'API is working correctly',
             'timestamp': datetime.now().isoformat(),
@@ -765,7 +854,21 @@ class TelegramCalendarSync:
             'path': request.path,
             'raw_path': str(request.raw_path),
             'headers': dict(request.headers)
-        })
+        }
+        
+        # If we have a bot token, get the bot username
+        if TELEGRAM_BOT_TOKEN:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe") as resp:
+                        if resp.status == 200:
+                            bot_info = await resp.json()
+                            if bot_info.get('ok') and bot_info.get('result', {}).get('username'):
+                                response_data['bot_name'] = bot_info['result']['username']
+            except Exception as e:
+                logger.error(f"Error getting bot info: {e}")
+                
+        return web.json_response(response_data)
 
     def __init__(self):
         self.client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
@@ -784,6 +887,13 @@ class TelegramCalendarSync:
         else:
             logger.info('Google Calendar integration not enabled (missing credentials or calendar ID)')
 
+        # Create the Telegram Login verifier
+        if TELEGRAM_BOT_TOKEN:
+            self.telegram_login_verifier = TelegramLoginVerifier(TELEGRAM_BOT_TOKEN)
+        else:
+            self.telegram_login_verifier = None
+            logger.warning("Telegram Bot Token not set, Telegram Login functionality will be disabled")
+
         # Web server for uploads
         self.web_app = web.Application()
         self.web_app.add_routes([
@@ -799,6 +909,10 @@ class TelegramCalendarSync:
             web.post('/unsubscribe-reminders', self.handle_unsubscribe_reminders),
             web.post('/login-request', self.handle_login_request),
             web.post('/login-verify', self.handle_login_verify),
+            
+            # Telegram Login Widget endpoints
+            web.get('/telegram-login', self.handle_telegram_login),
+            web.get('/api/telegram-login', self.handle_telegram_login),
             
             # Add duplicate routes with /api/ prefix for consistency
             web.post('/api/upload', self.handle_upload),

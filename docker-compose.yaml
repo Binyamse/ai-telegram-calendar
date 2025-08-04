@@ -77,8 +77,9 @@ services:
       # Telegram groups to monitor (comma-separated)
       - TELEGRAM_GROUPS=${TELEGRAM_GROUPS}
       
-      # Allowed Telegram usernames for UI access (comma-separated)
+      # Allowed Telegram usernames and user IDs for UI access (comma-separated)
       - ALLOWED_TELEGRAM_USERNAMES=${ALLOWED_TELEGRAM_USERNAMES:-}
+      - ALLOWED_TELEGRAM_USER_IDS=${ALLOWED_TELEGRAM_USER_IDS:-}
       
       # LLM API keys (at least one required)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

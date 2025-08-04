@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY telegram_calendar_sync.py .
+COPY telegram_login.py .
 
 # Create data directory
 RUN mkdir -p /app/data

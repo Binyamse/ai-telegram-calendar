@@ -46,6 +46,23 @@ fi
 echo -e "\n📡 TEST 5: Checking bot settings for Telegram Login"
 curl -s "https://api.telegram.org/bot$TOKEN/getMyCommands" | jq .
 
+# Test 6: Check if the Python module setup is correct
+echo -e "\n📡 TEST 6: Checking Python module setup"
+if [ -f "telegram_login.py" ]; then
+    echo "✅ telegram_login.py module exists in the current directory"
+else
+    echo "❌ ERROR: telegram_login.py module is missing!"
+    echo "    Create the file in your project directory."
+fi
+
+# Check if Dockerfile/docker-compose is set up correctly
+if grep -q "telegram_login.py" Dockerfile 2>/dev/null || grep -q "telegram_login.py" docker-compose.yaml 2>/dev/null; then
+    echo "✅ Dockerfile/docker-compose appears to include telegram_login.py"
+else
+    echo "⚠️ Warning: Make sure telegram_login.py is copied into your Docker container!"
+    echo "    You may need to update your Dockerfile or mount the file as a volume."
+fi
+
 # Print some guidance
 echo -e "\n🔎 To find your user ID:"
 echo "1. Talk to @userinfobot on Telegram and it will tell you your ID"

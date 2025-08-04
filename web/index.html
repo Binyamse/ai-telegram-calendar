@@ -460,11 +460,17 @@
         <div id="telegram-login" style="text-align:center;margin-bottom:20px;">
           <p style="margin-bottom:15px;font-size:14px;color:#444;"><strong>Option 1:</strong> One-click login with Telegram</p>
           <div id="telegram-login-widget" style="margin:0 auto;"></div>
+          <!-- Telegram Login Widget with correct bot name -->
           <script async src="https://telegram.org/js/telegram-widget.js?22" 
-                  data-telegram-login="YOUR_BOT_NAME" 
+                  data-telegram-login="fiscalendar_bot" 
                   data-size="large"
                   data-auth-url="/api/telegram-login"
                   data-request-access="write">
+          </script>
+          <script>
+            // Store the bot name in localStorage for future reference
+            localStorage.setItem('telegram_bot_name', 'fiscalendar_bot');
+            console.log('Using Telegram bot: fiscalendar_bot');
           </script>
           <div style="margin-top:15px;border-top:1px solid #eee;padding-top:15px;">
             <p style="color:#666;font-size:13px;font-style:italic;">Or use the manual login method below</p>

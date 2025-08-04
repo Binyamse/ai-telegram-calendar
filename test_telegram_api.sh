@@ -7,8 +7,10 @@ set -e
 # Check if bot token is provided
 if [ -z "$1" ]; then
     echo "Usage: $0 <TELEGRAM_BOT_TOKEN> <USERNAME> [USER_ID]"
-    echo "Example: $0 123456789:ABCD-EFG_HIJKlmnopQRSTUVwxyz binyams"
-    echo "Example with user ID: $0 123456789:ABCD-EFG_HIJKlmnopQRSTUVwxyz '' 123456789"
+    echo "Example: $0 YOUR_BOT_TOKEN_HERE binyams"
+    echo "Example with user ID: $0 YOUR_BOT_TOKEN_HERE '' 123456789"
+    echo ""
+    echo "Your bot: @fiscalendar_bot (Bot ID: 8317615229)"
     exit 1
 fi
 
@@ -92,6 +94,14 @@ if [ ! -z "$BOT_USERNAME" ]; then
     echo "        data-auth-url=\"/api/telegram-login\""
     echo "        data-request-access=\"write\">"
     echo "</script>"
+    
+    # Add verification about fiscalendar_bot
+    if [ "$BOT_USERNAME" == "fiscalendar_bot" ]; then
+        echo -e "\n✅ Verified: This is indeed your bot (@fiscalendar_bot)"
+    else
+        echo -e "\n⚠️ Warning: Bot username ($BOT_USERNAME) doesn't match expected bot (@fiscalendar_bot)"
+        echo "   Did you use the correct token?"
+    fi
 fi
 
 echo -e "\nDone!"

@@ -5,7 +5,7 @@ This document explains how to set up the Telegram Login Widget for your calendar
 ## 1. Configure Your Bot with BotFather
 
 1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
-2. Send the command `/mybots` and select your bot
+2. Send the command `/mybots` and select your bot: **@fiscalendar_bot**
 3. Click on "Bot Settings" > "Domain"
 4. Add your domain name (e.g., `example.com`) where your application is hosted
 5. Save the changes

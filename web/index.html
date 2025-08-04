@@ -433,6 +433,9 @@
                 </svg>
                 Refresh
             </button>
+            <button type="button" class="refresh-btn" id="test-api-btn" onclick="testAPIConnection()" style="background: linear-gradient(135deg, #6B46C1, #805AD5);">
+                Test API
+            </button>
         </form>
 
         <div id="error-message" class="error" style="display: none;"></div>
@@ -486,6 +489,78 @@
     </style>
 
     <script>
+        // Function to test API connectivity
+        async function testAPIConnection() {
+            const errorMessage = document.getElementById('error-message');
+            errorMessage.style.display = 'none';
+            
+            try {
+                // Try both endpoint patterns to see what works
+                const endpoints = [
+                    '/api/api-check',  // New unified API route
+                    '/api-check',      // Legacy direct route
+                ];
+                
+                let worked = false;
+                let results = [];
+                
+                for (const endpoint of endpoints) {
+                    try {
+                        console.log(`Testing endpoint: ${endpoint}`);
+                        const start = Date.now();
+                        const response = await fetch(endpoint);
+                        const elapsed = Date.now() - start;
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            worked = true;
+                            results.push({
+                                endpoint,
+                                status: response.status,
+                                data,
+                                elapsed
+                            });
+                            console.log(`✅ ${endpoint} works! (${elapsed}ms)`);
+                        } else {
+                            results.push({
+                                endpoint,
+                                status: response.status,
+                                error: await response.text(),
+                                elapsed
+                            });
+                            console.log(`❌ ${endpoint} failed: ${response.status}`);
+                        }
+                    } catch (err) {
+                        results.push({
+                            endpoint,
+                            error: err.message,
+                            elapsed: Date.now() - start
+                        });
+                        console.log(`❌ ${endpoint} error: ${err.message}`);
+                    }
+                }
+                
+                // Show results in the UI
+                if (worked) {
+                    errorMessage.textContent = `✅ API connection successful! Results: ${JSON.stringify(results, null, 2)}`;
+                    errorMessage.style.display = 'block';
+                    errorMessage.style.background = '#d4edda';
+                    errorMessage.style.color = '#155724';
+                    errorMessage.style.borderLeft = '4px solid #28a745';
+                } else {
+                    errorMessage.textContent = `❌ API connection failed. Results: ${JSON.stringify(results, null, 2)}`;
+                    errorMessage.style.display = 'block';
+                    errorMessage.style.background = '#f8d7da';
+                    errorMessage.style.color = '#721c24';
+                    errorMessage.style.borderLeft = '4px solid #dc3545';
+                }
+            } catch (error) {
+                console.error('Error testing API:', error);
+                errorMessage.textContent = `Error testing API: ${error.message}`;
+                errorMessage.style.display = 'block';
+            }
+        }
+        
         let allEvents = [];
         let filteredEvents = [];
         let currentSortOrder = 'asc'; // asc or desc

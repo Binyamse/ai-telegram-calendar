@@ -3,6 +3,8 @@ version: '3.8'
 networks:
   proxy-net:
     driver: bridge
+  default:
+    driver: bridge
 
 services:
   # Nginx Reverse Proxy
@@ -45,11 +47,14 @@ services:
       - VIRTUAL_HOST=${DOMAIN_NAME}
       - LETSENCRYPT_HOST=${DOMAIN_NAME}
       - LETSENCRYPT_EMAIL=${CERTBOT_EMAIL}
+      - VIRTUAL_PORT=80
     volumes:
       - ./web:/usr/share/nginx/html:ro
       - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./data:/app/data:ro
       - ./web/.htpasswd:/etc/nginx/.htpasswd:ro
+      # Add explicit logs volume for debugging
+      - ./data/nginx/logs:/var/log/nginx
     depends_on:
       - telegram-calendar-sync
     networks:

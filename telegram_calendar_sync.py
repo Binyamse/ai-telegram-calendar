@@ -704,6 +704,19 @@ class TelegramCalendarSync:
             except Exception as e:
                 logger.error(f"Error in reminder task: {e}")
             await asyncio.sleep(REMINDER_CHECK_INTERVAL)
+    async def handle_api_check(self, request: web.Request) -> web.Response:
+        """Debug endpoint to verify API connectivity"""
+        return web.json_response({
+            'status': 'ok',
+            'message': 'API is working correctly',
+            'timestamp': datetime.now().isoformat(),
+            'remote_ip': request.remote,
+            'forwarded_for': request.headers.get('X-Forwarded-For', 'None'),
+            'path': request.path,
+            'raw_path': str(request.raw_path),
+            'headers': dict(request.headers)
+        })
+
     def __init__(self):
         self.client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
         self.llm_extractor = LLMEventExtractor()
@@ -724,6 +737,11 @@ class TelegramCalendarSync:
         # Web server for uploads
         self.web_app = web.Application()
         self.web_app.add_routes([
+            # Debug/test endpoints
+            web.get('/api-check', self.handle_api_check),
+            web.get('/api/api-check', self.handle_api_check),
+            
+            # Standard API endpoints
             web.post('/upload', self.handle_upload),
             web.post('/dismiss-event', self.handle_dismiss_event),
             web.post('/clear-dismissed', self.handle_clear_dismissed),
@@ -731,6 +749,7 @@ class TelegramCalendarSync:
             web.post('/unsubscribe-reminders', self.handle_unsubscribe_reminders),
             web.post('/login-request', self.handle_login_request),
             web.post('/login-verify', self.handle_login_verify),
+            
             # Add duplicate routes with /api/ prefix for consistency
             web.post('/api/upload', self.handle_upload),
             web.post('/api/dismiss-event', self.handle_dismiss_event),
@@ -1174,7 +1193,9 @@ class TelegramCalendarSync:
         # Add middleware for request logging and CORS
         @web.middleware
         async def logging_middleware(request, handler):
-            logger.info(f"API Request: {request.method} {request.path} from {request.remote}")
+            logger.info(f"API Request: {request.method} {request.path} (Raw URL: {request.raw_path})")
+            logger.info(f"Headers: {dict(request.headers)}")
+            logger.info(f"Remote: {request.remote} - Forwarded: {request.headers.get('X-Forwarded-For', 'None')}")
             try:
                 response = await handler(request)
                 logger.info(f"API Response: {request.path} - Status: {response.status}")

@@ -1000,10 +1000,42 @@
         }
         
         function checkLogin() {
-            // Check cookie
+            // Check cookie with more detailed logging
+            console.log("Checking login cookies...");
+            console.log("All cookies:", document.cookie);
+            
+            // Parse cookies into an object for easier checking
+            const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+                const [name, value] = cookie.trim().split('=');
+                acc[name] = value;
+                return acc;
+            }, {});
+            
+            console.log("Parsed cookies:", cookies);
+            
             if (!document.cookie.includes('tg_user=')) {
+                console.log("tg_user cookie not found, showing login modal");
                 showLoginModal();
+                
+                // Check if we're coming back from a redirect
+                if (document.referrer && document.referrer.includes('/api/telegram-login')) {
+                    console.log("Detected return from login redirect, but no cookie set");
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.color = '#dc3545';
+                    errorDiv.style.padding = '10px';
+                    errorDiv.style.marginBottom = '15px';
+                    errorDiv.style.borderRadius = '4px';
+                    errorDiv.style.backgroundColor = '#f8d7da';
+                    errorDiv.style.textAlign = 'center';
+                    errorDiv.textContent = 'Login attempt detected but no cookie was set. This might be due to browser privacy settings.';
+                    
+                    const loginDiv = document.getElementById('telegram-login');
+                    if (loginDiv) {
+                        loginDiv.insertBefore(errorDiv, loginDiv.firstChild);
+                    }
+                }
             } else {
+                console.log("tg_user cookie found, hiding login modal");
                 hideLoginModal();
             }
         }
@@ -1017,9 +1049,50 @@
             document.getElementById('login-loading').style.display = 'none';
         }
         
+        // Debug function to check auth status
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/api/auth-check');
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log("Auth status:", data);
+                    
+                    // Show auth status in a message box
+                    const status = document.createElement('div');
+                    status.style.position = 'fixed';
+                    status.style.top = '10px';
+                    status.style.right = '10px';
+                    status.style.padding = '15px';
+                    status.style.background = data.authenticated ? '#d4edda' : '#f8d7da';
+                    status.style.border = '1px solid ' + (data.authenticated ? '#c3e6cb' : '#f5c6cb');
+                    status.style.borderRadius = '4px';
+                    status.style.zIndex = '9999';
+                    status.innerHTML = `
+                        <h4>Auth Status: ${data.authenticated ? 'Logged In' : 'Not Logged In'}</h4>
+                        <p>Username: ${data.username || 'None'}</p>
+                        <pre style="max-height:200px;overflow:auto;">${JSON.stringify(data, null, 2)}</pre>
+                        <button onclick="this.parentNode.remove()">Close</button>
+                    `;
+                    document.body.appendChild(status);
+                }
+            } catch (err) {
+                console.error("Error checking auth status:", err);
+            }
+        }
+        
         window.addEventListener('DOMContentLoaded', function() {
             checkLogin();
             updateTelegramLoginWidget();
+            
+            // Add debug button
+            const debugBtn = document.createElement('button');
+            debugBtn.innerText = 'Check Auth Status';
+            debugBtn.style.position = 'fixed';
+            debugBtn.style.bottom = '10px';
+            debugBtn.style.right = '10px';
+            debugBtn.style.zIndex = '9999';
+            debugBtn.onclick = checkAuthStatus;
+            document.body.appendChild(debugBtn);
             
             // Check for access denied error in URL
             const urlParams = new URLSearchParams(window.location.search);

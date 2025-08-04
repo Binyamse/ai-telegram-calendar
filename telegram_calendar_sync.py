@@ -571,14 +571,25 @@ class TelegramCalendarSync:
             # Redirect to access denied page instead of returning JSON error
             return web.HTTPFound('/access-denied.html')
         
-        # User is authorized - set session cookie
+        # User is authorized - set session cookie with secure and path attributes
+        logger.info(f"Login successful for {username or user_id}. Setting cookie and redirecting to home page.")
+        
+        # Get the domain from the request
+        domain = request.headers.get('X-Forwarded-Host') or request.headers.get('Host')
+        logger.debug(f"Setting cookie domain to: {domain}")
+        
         response = web.HTTPFound('/')  # Redirect to home page
+        cookie_value = username or f"user_{user_id}"
         response.set_cookie(
             'tg_user', 
-            username or f"user_{user_id}", 
-            max_age=86400, 
-            httponly=True
-        )
+            cookie_value, 
+            max_age=86400,
+            path='/',
+            domain=domain,
+            secure=True,
+            httponly=True,
+            samesite='Lax')  # Use Lax to work with redirects
+        logger.debug(f"Cookie set: tg_user={cookie_value} (domain={domain})")
         
         # Add user data to cookie as well (optional)
         response.set_cookie(
@@ -590,7 +601,12 @@ class TelegramCalendarSync:
                 'last_name': user_data.get('last_name', ''),
                 'photo_url': user_data.get('photo_url', ''),
             }),
-            max_age=86400
+            max_age=86400,
+            path='/',
+            domain=domain,
+            secure=True,
+            httponly=True,
+            samesite='Lax'
         )
         
         logger.info(f"Telegram Login successful for {username or user_id}")
@@ -842,6 +858,37 @@ class TelegramCalendarSync:
             except Exception as e:
                 logger.error(f"Error in reminder task: {e}")
             await asyncio.sleep(REMINDER_CHECK_INTERVAL)
+    async def handle_auth_check(self, request: web.Request) -> web.Response:
+        """Debug endpoint to check authentication status and cookies"""
+        # Extract cookies
+        cookies = request.cookies
+        tg_user = cookies.get('tg_user', None)
+        tg_user_data = cookies.get('tg_user_data', None)
+        
+        # Check if user is authenticated
+        is_authenticated = tg_user is not None
+        
+        # Try to parse user data if available
+        user_data = None
+        if tg_user_data:
+            try:
+                user_data = json.loads(tg_user_data)
+            except:
+                user_data = {"error": "Could not parse user data JSON"}
+        
+        response_data = {
+            'status': 'ok',
+            'authenticated': is_authenticated,
+            'username': tg_user,
+            'user_data': user_data,
+            'all_cookies': {k: v for k, v in cookies.items()},
+            'headers': dict(request.headers),
+            'remote_ip': request.remote,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return web.json_response(response_data)
+    
     async def handle_api_check(self, request: web.Request) -> web.Response:
         """Debug endpoint to verify API connectivity"""
         response_data = {
@@ -899,6 +946,8 @@ class TelegramCalendarSync:
             # Debug/test endpoints
             web.get('/api-check', self.handle_api_check),
             web.get('/api/api-check', self.handle_api_check),
+            web.get('/auth-check', self.handle_auth_check),
+            web.get('/api/auth-check', self.handle_auth_check),
             
             # Standard API endpoints
             web.post('/upload', self.handle_upload),

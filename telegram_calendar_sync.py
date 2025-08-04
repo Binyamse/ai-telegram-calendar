@@ -568,9 +568,8 @@ class TelegramCalendarSync:
         
         if not self.is_allowed_user(username=username, user_id=user_id):
             logger.warning(f"Unauthorized access attempt from: {username or user_id}")
-            return web.json_response({
-                'error': 'You are not authorized to access this application'
-            }, status=403)
+            # Redirect to access denied page instead of returning JSON error
+            return web.HTTPFound('/access-denied.html')
         
         # User is authorized - set session cookie
         response = web.HTTPFound('/')  # Redirect to home page

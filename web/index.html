@@ -350,14 +350,6 @@
             border: none;
         }
 
-        #login-modal #send-login-code {
-            background: #4299e1;
-        }
-
-        #login-modal #verify-login-code {
-            background: #38a169;
-        }
-
         #login-modal .error {
             color: #c53030;
             margin-top: 8px;
@@ -458,8 +450,7 @@
         
         <!-- Telegram Login Widget -->
         <div id="telegram-login" style="text-align:center;margin-bottom:20px;">
-          <p style="margin-bottom:15px;font-size:14px;color:#444;"><strong>Option 1:</strong> One-click login with Telegram</p>
-          <div id="telegram-login-widget" style="margin:0 auto;"></div>
+          <div id="telegram-login-widget" style="margin:20px auto;"></div>
           <!-- Telegram Login Widget with correct bot name -->
           <script async src="https://telegram.org/js/telegram-widget.js?22" 
                   data-telegram-login="fiscalendar_bot" 
@@ -472,39 +463,11 @@
             localStorage.setItem('telegram_bot_name', 'fiscalendar_bot');
             console.log('Using Telegram bot: fiscalendar_bot');
           </script>
-          <div style="margin-top:15px;border-top:1px solid #eee;padding-top:15px;">
-            <p style="color:#666;font-size:13px;font-style:italic;">Or use the manual login method below</p>
-          </div>
-        </div>
-        
-        <!-- Manual Login Option -->
-        <div id="login-step-username">
-          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Option 2:</strong> Enter your Telegram username (without @) or ID</p>
-          <input type="text" id="tg-username" placeholder="YourTelegramUsername or id:123456789" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
-          <button id="send-login-code" style="width:100%;padding:10px;border-radius:8px;background:#4299e1;color:white;border:none;">Send Login Code</button>
-          <div id="login-error" style="color:#c53030;margin-top:8px;display:none;"></div>
-          <div style="margin-top:16px;font-size:12px;color:#666;text-align:center;">
-            <p>Make sure you've interacted with our bot first.</p>
-            <p style="margin-top:8px;"><strong>Tip:</strong> If username doesn't work, use <code>id:YOUR_NUMERIC_ID</code></p>
-            <p style="margin-top:8px;">
-              <a href="#" onclick="showIdHelp(); return false;" style="color:#4299e1;text-decoration:underline;">How to find your Telegram ID</a>
-            </p>
-          </div>
-        </div>
-        
-        <div id="login-step-code" style="display:none;">
-          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Step 2:</strong> Enter the code sent to your Telegram</p>
-          <input type="text" id="tg-code" placeholder="Enter 6-digit code" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
-          <button id="verify-login-code" style="width:100%;padding:10px;border-radius:8px;background:#38a169;color:white;border:none;">Verify & Login</button>
-          <div id="verify-error" style="color:#c53030;margin-top:8px;display:none;"></div>
-          <div style="display:flex;justify-content:center;margin-top:16px;">
-            <button id="back-to-username" style="background:none;border:none;color:#4299e1;cursor:pointer;font-size:14px;">← Back</button>
-          </div>
         </div>
         
         <div id="login-loading" style="display:none;text-align:center;">
           <div style="display:inline-block;width:30px;height:30px;border:3px solid rgba(66,153,225,0.3);border-radius:50%;border-top-color:#4299e1;animation:spin 1s linear infinite;margin:10px 0;"></div>
-          <p id="loading-text">Sending login code...</p>
+          <p id="loading-text">Processing login...</p>
         </div>
       </div>
     </div>
@@ -548,26 +511,7 @@
                 });
         }
 
-        // Function to show help for finding Telegram ID
-        function showIdHelp() {
-            const helpText = `
-                <div style="text-align:left;padding:15px;background:#f8f9fa;border-radius:8px;margin-top:20px;">
-                    <h3 style="margin-bottom:10px;">How to Find Your Telegram ID:</h3>
-                    <ol style="margin-left:20px;line-height:1.5;">
-                        <li>Open Telegram and search for <strong>@userinfobot</strong></li>
-                        <li>Start a chat with this bot and send any message</li>
-                        <li>The bot will reply with your account info including your ID</li>
-                        <li>Copy the numeric ID (e.g., <code>123456789</code>)</li>
-                        <li>Enter <code>id:123456789</code> (using your ID) in the username field</li>
-                    </ol>
-                    <p style="margin-top:10px;">This will bypass the username lookup and send the code directly to you.</p>
-                </div>
-            `;
-            
-            document.getElementById('login-error').innerHTML = helpText;
-            document.getElementById('login-error').style.color = '#444';
-            document.getElementById('login-error').style.display = 'block';
-        }
+        // Function is no longer used since we removed the manual login option
         
         // Function to test API connectivity
         async function testAPIConnection() {
@@ -1059,19 +1003,12 @@
             // Check cookie
             if (!document.cookie.includes('tg_user=')) {
                 showLoginModal();
-                // Focus on username field
-                setTimeout(() => {
-                    const usernameField = document.getElementById('tg-username');
-                    if (usernameField) usernameField.focus();
-                }, 100);
             } else {
                 hideLoginModal();
             }
         }
         
         function showLoading(message) {
-            document.getElementById('login-step-username').style.display = 'none';
-            document.getElementById('login-step-code').style.display = 'none';
             document.getElementById('loading-text').textContent = message;
             document.getElementById('login-loading').style.display = 'block';
         }
@@ -1083,6 +1020,25 @@
         window.addEventListener('DOMContentLoaded', function() {
             checkLogin();
             updateTelegramLoginWidget();
+            
+            // Check for access denied error in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('error') === 'unauthorized') {
+                // Show login modal with error message
+                showLoginModal();
+                // Display error message
+                const errorDiv = document.createElement('div');
+                errorDiv.style.color = '#dc3545';
+                errorDiv.style.padding = '10px';
+                errorDiv.style.marginBottom = '15px';
+                errorDiv.style.borderRadius = '4px';
+                errorDiv.style.backgroundColor = '#f8d7da';
+                errorDiv.style.textAlign = 'center';
+                errorDiv.textContent = 'Your Telegram account is not authorized to access this application.';
+                
+                const loginDiv = document.getElementById('telegram-login');
+                loginDiv.insertBefore(errorDiv, loginDiv.firstChild);
+            }
             
             // Try to fetch the bot name using our test script
             fetch('/api-check')
@@ -1100,98 +1056,6 @@
                 })
                 .catch(err => console.log('Could not fetch bot info:', err));
         });
-        
-        // Back button functionality
-        document.getElementById('back-to-username').addEventListener('click', function() {
-            document.getElementById('login-step-code').style.display = 'none';
-            document.getElementById('login-step-username').style.display = 'block';
-            document.getElementById('tg-username').focus();
-        });
-
-        document.getElementById('send-login-code').onclick = async function() {
-            const username = document.getElementById('tg-username').value.trim();
-            const errorDiv = document.getElementById('login-error');
-            errorDiv.style.display = 'none';
-            
-            if (!username) {
-                errorDiv.textContent = 'Please enter your Telegram username.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            showLoading('Sending login code...');
-            
-            try {
-                // Use API prefix path to ensure proper routing
-                const resp = await fetch('/api/login-request', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username})
-                });
-                
-                const data = await resp.json();
-                hideLoading();
-                
-                if (!resp.ok) {
-                    errorDiv.textContent = data.error || 'Error sending code.';
-                    errorDiv.style.display = 'block';
-                    document.getElementById('login-step-username').style.display = 'block';
-                    return;
-                }
-                
-                document.getElementById('login-step-username').style.display = 'none';
-                document.getElementById('login-step-code').style.display = 'block';
-                document.getElementById('tg-code').focus();
-            } catch (error) {
-                hideLoading();
-                errorDiv.textContent = 'Network error. Please try again.';
-                errorDiv.style.display = 'block';
-                document.getElementById('login-step-username').style.display = 'block';
-            }
-        };
-        
-        document.getElementById('verify-login-code').onclick = async function() {
-            const username = document.getElementById('tg-username').value.trim();
-            const code = document.getElementById('tg-code').value.trim();
-            const errorDiv = document.getElementById('verify-error');
-            errorDiv.style.display = 'none';
-            
-            if (!code) {
-                errorDiv.textContent = 'Please enter the code sent to your Telegram.';
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            showLoading('Verifying code...');
-            
-            try {
-                const resp = await fetch('/api/login-verify', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, code})
-                });
-                
-                const data = await resp.json();
-                
-                if (!resp.ok) {
-                    hideLoading();
-                    errorDiv.textContent = data.error || 'Error verifying code.';
-                    errorDiv.style.display = 'block';
-                    document.getElementById('login-step-code').style.display = 'block';
-                    return;
-                }
-                
-                // Login success!
-                hideLoading();
-                hideLoginModal();
-                location.reload();
-            } catch (error) {
-                hideLoading();
-                errorDiv.textContent = 'Network error. Please try again.';
-                errorDiv.style.display = 'block';
-                document.getElementById('login-step-code').style.display = 'block';
-            }
-        };
 
         // Load events on page load
         loadEvents();

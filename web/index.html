@@ -457,11 +457,17 @@
         <p style="margin-bottom:16px;color:#666;text-align:center;font-size:14px;">Access is restricted. Please log in with your Telegram account.</p>
         
         <div id="login-step-username">
-          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Step 1:</strong> Enter your Telegram username (without @)</p>
-          <input type="text" id="tg-username" placeholder="YourTelegramUsername" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
+          <p style="margin-bottom:8px;font-size:13px;color:#444;"><strong>Step 1:</strong> Enter your Telegram username (without @) or ID</p>
+          <input type="text" id="tg-username" placeholder="YourTelegramUsername or id:123456789" style="width:100%;padding:10px;margin-bottom:12px;border-radius:8px;border:1px solid #ccc;">
           <button id="send-login-code" style="width:100%;padding:10px;border-radius:8px;background:#4299e1;color:white;border:none;">Send Login Code</button>
           <div id="login-error" style="color:#c53030;margin-top:8px;display:none;"></div>
-          <p style="margin-top:16px;font-size:12px;color:#666;text-align:center;">Make sure you've interacted with our bot first.</p>
+          <div style="margin-top:16px;font-size:12px;color:#666;text-align:center;">
+            <p>Make sure you've interacted with our bot first.</p>
+            <p style="margin-top:8px;"><strong>Tip:</strong> If username doesn't work, use <code>id:YOUR_NUMERIC_ID</code></p>
+            <p style="margin-top:8px;">
+              <a href="#" onclick="showIdHelp(); return false;" style="color:#4299e1;text-decoration:underline;">How to find your Telegram ID</a>
+            </p>
+          </div>
         </div>
         
         <div id="login-step-code" style="display:none;">
@@ -489,6 +495,27 @@
     </style>
 
     <script>
+        // Function to show help for finding Telegram ID
+        function showIdHelp() {
+            const helpText = `
+                <div style="text-align:left;padding:15px;background:#f8f9fa;border-radius:8px;margin-top:20px;">
+                    <h3 style="margin-bottom:10px;">How to Find Your Telegram ID:</h3>
+                    <ol style="margin-left:20px;line-height:1.5;">
+                        <li>Open Telegram and search for <strong>@userinfobot</strong></li>
+                        <li>Start a chat with this bot and send any message</li>
+                        <li>The bot will reply with your account info including your ID</li>
+                        <li>Copy the numeric ID (e.g., <code>123456789</code>)</li>
+                        <li>Enter <code>id:123456789</code> (using your ID) in the username field</li>
+                    </ol>
+                    <p style="margin-top:10px;">This will bypass the username lookup and send the code directly to you.</p>
+                </div>
+            `;
+            
+            document.getElementById('login-error').innerHTML = helpText;
+            document.getElementById('login-error').style.color = '#444';
+            document.getElementById('login-error').style.display = 'block';
+        }
+        
         // Function to test API connectivity
         async function testAPIConnection() {
             const errorMessage = document.getElementById('error-message');

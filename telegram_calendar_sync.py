@@ -502,13 +502,20 @@ class GoogleCalendarClient:
 class TelegramCalendarSync:
     def is_allowed_user(self, username: str) -> bool:
         """Check if the Telegram username is allowed for UI access."""
+        # Special case for user IDs in the format "id:123456789"
+        if username and username.startswith("id:"):
+            # Always allow direct user IDs for now (we'll validate them during code sending)
+            return True
         return username and username.lower() in ALLOWED_TELEGRAM_USERNAMES
     async def handle_login_request(self, request: web.Request) -> web.Response:
         """Handle login request: verify allowed username and send code via bot."""
         try:
             data = await request.json()
             username = data.get('username', '').strip().lower()
-            if not self.is_allowed_user(username):
+            user_id = data.get('user_id', '').strip()  # Support direct user_id input
+            
+            # Check if user is allowed
+            if not user_id and not self.is_allowed_user(username):
                 return web.json_response({'error': 'User not allowed'}, status=403)
             
             # Make sure we have a bot token
@@ -518,52 +525,73 @@ class TelegramCalendarSync:
             # Generate a random 6-digit code
             code = str(uuid.uuid4().int % 1000000).zfill(6)
             
-            # Store code in a temp file (per username)
-            code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{username}.json')
+            # Store code in a temp file (per username or user_id)
+            identifier = user_id or username
+            code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{identifier}.json')
             with open(code_file, 'w') as f:
                 json.dump({'code': code, 'timestamp': time.time()}, f)
                 
             # Send code via Telegram bot
             code_sent = False
             async with aiohttp.ClientSession() as session:
-                # Find user chat ID via username
-                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat"
-                payload = {"chat_id": f"@{username}"}
-                try:
-                    async with session.post(url, json=payload) as resp:
-                        chat_info = await resp.json()
-                        chat_id = None
-                        if chat_info.get('ok') and chat_info.get('result', {}).get('id'):
-                            chat_id = chat_info['result']['id']
+                chat_id = None
+                
+                # If user_id is provided, use it directly
+                if user_id:
+                    chat_id = user_id
+                    logger.info(f"Using provided user_id: {user_id}")
+                else:
+                    # Find user chat ID via username
+                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChat"
+                    payload = {"chat_id": f"@{username}"}
+                    try:
+                        async with session.post(url, json=payload) as resp:
+                            chat_info = await resp.json()
+                            logger.debug(f"getChat API response: {chat_info}")
+                            if chat_info.get('ok') and chat_info.get('result', {}).get('id'):
+                                chat_id = chat_info['result']['id']
+                                logger.info(f"Found chat_id {chat_id} for username @{username}")
+                            else:
+                                logger.warning(f"Could not find chat_id for @{username}. Response: {chat_info}")
+                    except Exception as e:
+                        logger.error(f"Telegram getChat API error: {e}")
+                
+                # Try sending message if we have chat_id
+                if chat_id:
+                    try:
+                        # Send message with code
+                        msg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                        msg_payload = {"chat_id": chat_id, "text": f"Your login code: {code}"}
+                        logger.debug(f"Sending message to chat_id {chat_id}")
+                        
+                        async with session.post(msg_url, json=msg_payload) as msg_resp:
+                            msg_result = await msg_resp.json()
+                            logger.debug(f"sendMessage API response: {msg_result}")
                             
-                        if chat_id:
-                            # Send message with code
-                            msg_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                            msg_payload = {"chat_id": chat_id, "text": f"Your login code: {code}"}
-                            async with session.post(msg_url, json=msg_payload) as msg_resp:
-                                msg_result = await msg_resp.json()
-                                if msg_result.get('ok'):
-                                    code_sent = True
-                                    logger.info(f"Sent login code to @{username}")
-                                else:
-                                    logger.error(f"Failed to send message: {msg_result}")
-                        else:
-                            logger.warning(f"Could not find chat_id for @{username}. Make sure user has messaged the bot first.")
-                except Exception as e:
-                    logger.error(f"Telegram API error: {e}")
+                            if msg_result.get('ok'):
+                                code_sent = True
+                                logger.info(f"Sent login code to user (chat_id: {chat_id})")
+                            else:
+                                logger.error(f"Failed to send message: {msg_result}")
+                    except Exception as e:
+                        logger.error(f"Telegram sendMessage API error: {e}")
+                else:
+                    logger.warning(f"No valid chat_id found for {username or user_id}")
                     
             if not code_sent:
                 # Clean up the code file if we couldn't send
                 if os.path.exists(code_file):
                     os.remove(code_file)
-                return web.json_response(
-                    {'error': 'Could not send code to your Telegram account. Make sure you have messaged the bot first.'}, 
-                    status=400
-                )
+                
+                # Return a more detailed error message with help info
+                return web.json_response({
+                    'error': 'Could not send code to your Telegram account. Make sure you have messaged the bot first.',
+                    'help': 'To use your Telegram user ID directly, enter it in the format "id:YOUR_ID" in the username field.'
+                }, status=400)
                 
             return web.json_response({'status': 'code_sent'})
         except Exception as e:
-            logger.error(f"Error in login request: {e}")
+            logger.error(f"Error in login request: {e}", exc_info=True)
             return web.json_response({'error': str(e)}, status=500)
 
     async def handle_login_verify(self, request: web.Request) -> web.Response:
@@ -571,25 +599,47 @@ class TelegramCalendarSync:
         try:
             data = await request.json()
             username = data.get('username', '').strip().lower()
+            user_id = data.get('user_id', '').strip()  # Support direct user_id input
             code = data.get('code', '').strip()
-            if not self.is_allowed_user(username):
+            
+            # Process username with id: prefix for direct user ID input
+            if username.startswith("id:"):
+                user_id = username[3:].strip()
+                username = ""
+                logger.info(f"Extracted user_id {user_id} from username field")
+            
+            # Check permissions
+            if not user_id and not self.is_allowed_user(username):
                 return web.json_response({'error': 'User not allowed'}, status=403)
-            code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{username}.json')
+            
+            # Determine which identifier to use
+            identifier = user_id or username
+            code_file = os.path.join(os.path.dirname(CALENDAR_OUTPUT_PATH), f'login_code_{identifier}.json')
+            
             if not os.path.exists(code_file):
+                logger.warning(f"No code file found for {identifier}")
                 return web.json_response({'error': 'No code found. Please request a new code.'}, status=400)
+            
             with open(code_file, 'r') as f:
                 code_data = json.load(f)
+            
             # Check code and expiry (valid for 10 min)
             if code_data['code'] != code or time.time() - code_data['timestamp'] > 600:
+                logger.warning(f"Invalid or expired code for {identifier}")
                 return web.json_response({'error': 'Invalid or expired code.'}, status=400)
-            # Set session cookie
+            
+            # Set session cookie - use username or user_id as cookie value
+            cookie_value = username or f"user_{user_id}"
             response = web.json_response({'status': 'verified'})
-            response.set_cookie('tg_user', username, max_age=86400, httponly=True)
+            response.set_cookie('tg_user', cookie_value, max_age=86400, httponly=True)
+            
             # Remove code file after successful login
             os.remove(code_file)
+            logger.info(f"Successful login for {identifier}")
+            
             return response
         except Exception as e:
-            logger.error(f"Error in login verify: {e}")
+            logger.error(f"Error in login verify: {e}", exc_info=True)
             return web.json_response({'error': str(e)}, status=500)
     def get_subscribed_chat_ids(self):
         """Load subscribed chat IDs from file."""

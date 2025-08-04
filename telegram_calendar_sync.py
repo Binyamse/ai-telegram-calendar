@@ -578,7 +578,8 @@ class TelegramCalendarSync:
         domain = request.headers.get('X-Forwarded-Host') or request.headers.get('Host')
         logger.debug(f"Setting cookie domain to: {domain}")
         
-        response = web.HTTPFound('/')  # Redirect to home page
+        # Use a special URL that forces the UI to refresh/reload
+        response = web.HTTPFound('/?auth=success&ts=' + str(int(time.time())))  # Redirect with query params to force refresh
         cookie_value = username or f"user_{user_id}"
         response.set_cookie(
             'tg_user', 

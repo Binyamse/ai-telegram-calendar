@@ -444,7 +444,7 @@
     </div>
 
     <div id="login-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
-      <div style="background:white;padding:32px;border-radius:16px;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
+      <div style="background:white;padding:32px;border-radius:16px;max-width:400px;width:calc(100% - 40px);margin:0 auto;box-shadow:0 8px 32px rgba(0,0,0,0.15);">
         <h2 style="margin-bottom:16px;text-align:center;">🔐 Telegram Login Required</h2>
         <p style="margin-bottom:16px;color:#666;text-align:center;font-size:14px;">Access is restricted. Please log in with your Telegram account.</p>
         
@@ -468,6 +468,11 @@
         <div id="login-loading" style="display:none;text-align:center;">
           <div style="display:inline-block;width:30px;height:30px;border:3px solid rgba(66,153,225,0.3);border-radius:50%;border-top-color:#4299e1;animation:spin 1s linear infinite;margin:10px 0;"></div>
           <p id="loading-text">Processing login...</p>
+        </div>
+        
+        <div style="text-align:center;margin-top:20px;">
+          <button id="troubleshoot-btn" style="background:#f8f9fa;border:1px solid #ddd;border-radius:4px;padding:8px 16px;font-size:14px;cursor:pointer;" 
+            onclick="checkAuthStatus()">Troubleshoot Login</button>
         </div>
       </div>
     </div>
@@ -592,20 +597,40 @@
 
         async function loadDismissedEvents() {
             try {
+                console.log('Attempting to load dismissed events...');
                 const response = await fetch('./data/dismissed_events.json');
+                console.log('Dismissed events response:', response.status, response.statusText);
+                
                 if (response.ok) {
                     dismissedEvents = await response.json();
+                    console.log('Loaded dismissed events:', dismissedEvents.length);
+                } else if (response.status === 404) {
+                    console.log('No dismissed events file found (404), starting fresh');
+                    dismissedEvents = [];
+                } else {
+                    console.warn('Error loading dismissed events:', response.status, response.statusText);
+                    dismissedEvents = [];
                 }
             } catch (error) {
-                console.log('No dismissed events file found, starting fresh');
+                console.warn('Exception loading dismissed events:', error);
                 dismissedEvents = [];
             }
         }
 
         async function loadEvents() {
+            console.log("Loading events data...");
             const loading = document.getElementById('loading');
             const errorMessage = document.getElementById('error-message');
             const eventsContainer = document.getElementById('events-container');
+            
+            if (!loading || !errorMessage || !eventsContainer) {
+                console.error("Critical error: Required DOM elements missing", {
+                    loading: !!loading,
+                    errorMessage: !!errorMessage,
+                    eventsContainer: !!eventsContainer
+                });
+                return;
+            }
             
             loading.style.display = 'block';
             errorMessage.style.display = 'none';
@@ -613,9 +638,13 @@
 
             try {
                 // Load dismissed events first
+                console.log("Loading dismissed events...");
                 await loadDismissedEvents();
                 
+                console.log("Fetching events from ./data/events.json");
                 const response = await fetch('./data/events.json');
+                console.log("Events fetch response:", response.status, response.statusText);
+                
                 if (!response.ok) {
                     if (response.status === 404) {
                         throw new Error('No events found. The calendar is still collecting events or no events have been extracted yet.');
@@ -990,13 +1019,61 @@
         }
 
         function showLoginModal() {
-            document.getElementById('login-modal').style.display = 'flex';
-            document.getElementById('main-container').style.display = 'none';
+            console.log("Showing login modal");
+            const loginModal = document.getElementById('login-modal');
+            const mainContainer = document.getElementById('main-container');
+            
+            if (loginModal) loginModal.style.display = 'flex';
+            if (mainContainer) mainContainer.style.display = 'none';
         }
         
         function hideLoginModal() {
-            document.getElementById('login-modal').style.display = 'none';
-            document.getElementById('main-container').style.display = 'block';
+            console.log("Hiding login modal, showing main content");
+            const loginModal = document.getElementById('login-modal');
+            const mainContainer = document.getElementById('main-container');
+            
+            if (loginModal) loginModal.style.display = 'none';
+            if (mainContainer) {
+                mainContainer.style.display = 'block';
+                // Try to load events if they haven't been loaded yet
+                loadEvents();
+            }
+        }
+        
+        // Helper function to get cookies as an object
+        function getCookies() {
+            return document.cookie.split(';').reduce((acc, cookie) => {
+                const [name, value] = cookie.trim().split('=');
+                if (name) acc[name] = value;
+                return acc;
+            }, {});
+        }
+        
+        // Check if user is authenticated
+        function isAuthenticated() {
+            return document.cookie.includes('tg_user=');
+        }
+        
+        // Show the main content container
+        function showMainContent() {
+            console.log("Showing main content");
+            const mainContainer = document.getElementById('main-container');
+            if (mainContainer) {
+                mainContainer.style.display = 'block';
+            } else {
+                console.error("Main container element not found!");
+            }
+        }
+        
+        // Hide the main content container
+        function hideMainContent() {
+            console.log("Hiding main content");
+            const mainContainer = document.getElementById('main-container');
+            if (mainContainer) {
+                mainContainer.style.display = 'none';
+            } else {
+                console.error("Main container element not found!");
+            }
         }
         
         function checkLogin() {
@@ -1004,39 +1081,43 @@
             console.log("Checking login cookies...");
             console.log("All cookies:", document.cookie);
             
-            // Parse cookies into an object for easier checking
-            const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-                const [name, value] = cookie.trim().split('=');
-                acc[name] = value;
-                return acc;
-            }, {});
+            // Force display the main container if we're already authenticated
+            // This ensures the page loads properly even if there are other issues
+            if (isAuthenticated()) {
+                console.log("tg_user cookie found, showing main container");
+                hideLoginModal();
+                showMainContent();
+                
+                // Refresh events data
+                loadEvents();
+                return;
+            }
             
+            // Parse cookies for logging purposes
+            const cookies = getCookies();
             console.log("Parsed cookies:", cookies);
             
-            if (!document.cookie.includes('tg_user=')) {
-                console.log("tg_user cookie not found, showing login modal");
-                showLoginModal();
+            // If we reach here, we're not authenticated
+            console.log("tg_user cookie not found, showing login modal");
+            showLoginModal();
+            hideMainContent();
+            
+            // Check if we're coming back from a redirect
+            if (document.referrer && document.referrer.includes('/api/telegram-login')) {
+                console.log("Detected return from login redirect, but no cookie set");
+                const errorDiv = document.createElement('div');
+                errorDiv.style.color = '#dc3545';
+                errorDiv.style.padding = '10px';
+                errorDiv.style.marginBottom = '15px';
+                errorDiv.style.borderRadius = '4px';
+                errorDiv.style.backgroundColor = '#f8d7da';
+                errorDiv.style.textAlign = 'center';
+                errorDiv.textContent = 'Login attempt detected but no cookie was set. This might be due to browser privacy settings.';
                 
-                // Check if we're coming back from a redirect
-                if (document.referrer && document.referrer.includes('/api/telegram-login')) {
-                    console.log("Detected return from login redirect, but no cookie set");
-                    const errorDiv = document.createElement('div');
-                    errorDiv.style.color = '#dc3545';
-                    errorDiv.style.padding = '10px';
-                    errorDiv.style.marginBottom = '15px';
-                    errorDiv.style.borderRadius = '4px';
-                    errorDiv.style.backgroundColor = '#f8d7da';
-                    errorDiv.style.textAlign = 'center';
-                    errorDiv.textContent = 'Login attempt detected but no cookie was set. This might be due to browser privacy settings.';
-                    
-                    const loginDiv = document.getElementById('telegram-login');
-                    if (loginDiv) {
-                        loginDiv.insertBefore(errorDiv, loginDiv.firstChild);
-                    }
+                const loginDiv = document.getElementById('telegram-login');
+                if (loginDiv) {
+                    loginDiv.insertBefore(errorDiv, loginDiv.firstChild);
                 }
-            } else {
-                console.log("tg_user cookie found, hiding login modal");
-                hideLoginModal();
             }
         }
         
@@ -1081,18 +1162,91 @@
         }
         
         window.addEventListener('DOMContentLoaded', function() {
+            console.log("DOM fully loaded");
+            
+            // Log page elements to verify they exist
+            console.log("login-modal exists:", !!document.getElementById('login-modal'));
+            console.log("main-container exists:", !!document.getElementById('main-container'));
+            
+            // First check cookies directly
+            const hasTgUserCookie = document.cookie.includes('tg_user=');
+            console.log("Has tg_user cookie:", hasTgUserCookie);
+            
+            // Check URL params for auth=success (means we just logged in successfully)
+            const searchParams = new URLSearchParams(window.location.search);
+            const authSuccess = searchParams.get('auth') === 'success';
+            
+            if (authSuccess) {
+                console.log("Auth success detected in URL, forcing UI refresh");
+                // Remove the URL parameters to avoid refresh loops
+                window.history.replaceState({}, document.title, '/');
+                // Force hide login, show main container
+                document.getElementById('login-modal').style.display = 'none';
+                document.getElementById('main-container').style.display = 'block';
+                // Load events data
+                loadEvents();
+            }
+            else if (hasTgUserCookie) {
+                // If we're authenticated, immediately show the main container
+                document.getElementById('main-container').style.display = 'block';
+                document.getElementById('login-modal').style.display = 'none';
+                console.log("Pre-emptively showing main container based on cookie");
+                
+                // Load events data
+                loadEvents();
+            }
+            
+            // Regular login check
             checkLogin();
             updateTelegramLoginWidget();
             
-            // Add debug button
+            // Add debug buttons
+            const btnContainer = document.createElement('div');
+            btnContainer.style.position = 'fixed';
+            btnContainer.style.bottom = '10px';
+            btnContainer.style.right = '10px';
+            btnContainer.style.zIndex = '9999';
+            btnContainer.style.display = 'flex';
+            btnContainer.style.gap = '10px';
+            
             const debugBtn = document.createElement('button');
             debugBtn.innerText = 'Check Auth Status';
-            debugBtn.style.position = 'fixed';
-            debugBtn.style.bottom = '10px';
-            debugBtn.style.right = '10px';
-            debugBtn.style.zIndex = '9999';
             debugBtn.onclick = checkAuthStatus;
-            document.body.appendChild(debugBtn);
+            btnContainer.appendChild(debugBtn);
+            
+            const forceShowBtn = document.createElement('button');
+            forceShowBtn.innerText = 'Force Show Calendar';
+            forceShowBtn.style.background = '#28a745';
+            forceShowBtn.style.color = 'white';
+            forceShowBtn.onclick = () => {
+                document.getElementById('login-modal').style.display = 'none';
+                document.getElementById('main-container').style.display = 'block';
+                loadEvents();
+            };
+            btnContainer.appendChild(forceShowBtn);
+            
+            const reloadBtn = document.createElement('button');
+            reloadBtn.innerText = 'Reload Events';
+            reloadBtn.onclick = loadEvents;
+            btnContainer.appendChild(reloadBtn);
+            
+            document.body.appendChild(btnContainer);
+            
+            // Add a debug message at the top of the page if authenticated
+            if (hasTgUserCookie) {
+                const debugMessage = document.createElement('div');
+                debugMessage.style.padding = '10px';
+                debugMessage.style.background = '#d4edda';
+                debugMessage.style.color = '#155724';
+                debugMessage.style.borderRadius = '4px';
+                debugMessage.style.margin = '10px';
+                debugMessage.style.position = 'fixed';
+                debugMessage.style.top = '10px';
+                debugMessage.style.left = '10px';
+                debugMessage.style.zIndex = '9999';
+                debugMessage.innerHTML = `Authenticated as: ${document.cookie.split('tg_user=')[1]?.split(';')[0] || 'unknown'} <button onclick="this.parentNode.remove()">Close</button>`;
+                document.body.appendChild(debugMessage);
+            }
             
             // Check for access denied error in URL
             const urlParams = new URLSearchParams(window.location.search);

@@ -730,7 +730,15 @@ class TelegramCalendarSync:
             web.post('/subscribe-reminders', self.handle_subscribe_reminders),
             web.post('/unsubscribe-reminders', self.handle_unsubscribe_reminders),
             web.post('/login-request', self.handle_login_request),
-            web.post('/login-verify', self.handle_login_verify)
+            web.post('/login-verify', self.handle_login_verify),
+            # Add duplicate routes with /api/ prefix for consistency
+            web.post('/api/upload', self.handle_upload),
+            web.post('/api/dismiss-event', self.handle_dismiss_event),
+            web.post('/api/clear-dismissed', self.handle_clear_dismissed),
+            web.post('/api/subscribe-reminders', self.handle_subscribe_reminders),
+            web.post('/api/unsubscribe-reminders', self.handle_unsubscribe_reminders),
+            web.post('/api/login-request', self.handle_login_request),
+            web.post('/api/login-verify', self.handle_login_verify)
         ])
     async def handle_subscribe_reminders(self, request: web.Request) -> web.Response:
         """Handle user subscription to Telegram reminders."""
@@ -1163,11 +1171,51 @@ class TelegramCalendarSync:
     
     async def run_web_server(self):
         """Run the aiohttp web server."""
+        # Add middleware for request logging and CORS
+        @web.middleware
+        async def logging_middleware(request, handler):
+            logger.info(f"API Request: {request.method} {request.path} from {request.remote}")
+            try:
+                response = await handler(request)
+                logger.info(f"API Response: {request.path} - Status: {response.status}")
+                return response
+            except Exception as e:
+                logger.error(f"API Error: {request.path} - Error: {e}")
+                raise
+        
+        @web.middleware
+        async def cors_middleware(request, handler):
+            # Handle CORS preflight OPTIONS request
+            if request.method == "OPTIONS":
+                headers = {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+                    'Access-Control-Max-Age': '86400'
+                }
+                return web.Response(headers=headers)
+                
+            # Process regular request
+            response = await handler(request)
+            # Add CORS headers to every response
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            return response
+        
+        # Create application with middleware
+        self.web_app.middlewares.extend([logging_middleware, cors_middleware])
+        
         runner = web.AppRunner(self.web_app)
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', 8080)
         await site.start()
         logger.info("Started web server on port 8080")
+        
+        # Log available routes
+        routes = [route for route in self.web_app.router.routes()]
+        logger.info(f"Available API routes: {[r.path for r in routes if hasattr(r, 'path')]}")
+        
         # Keep it running by returning a long-running awaitable
         await asyncio.Event().wait()
 

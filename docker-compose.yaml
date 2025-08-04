@@ -95,9 +95,9 @@ services:
       # Persistent data storage
       - ./data:/app/data
       
-    # Optional: expose health check endpoint
-    # ports:
-    #   - "8080:8080"
+    # Expose API endpoint for the web frontend
+    ports:
+      - "8080:8080"
     
     # Resource limits
     deploy:

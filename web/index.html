@@ -700,7 +700,7 @@
             dismissedEvents.push(eventId);
             
             // Send to server to persist
-            fetch('./dismiss-event', {
+            fetch('/api/dismiss-event', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -720,7 +720,7 @@
             dismissedEvents = [];
             
             // Clear on server
-            fetch('./clear-dismissed', {
+            fetch('/api/clear-dismissed', {
                 method: 'POST'
             }).then(() => {
                 loadEvents(); // Reload all events
@@ -867,7 +867,7 @@
             errorMessage.style.display = 'none';
 
             try {
-                const response = await fetch('./upload', {
+                const response = await fetch('/api/upload', {
                     method: 'POST',
                     body: formData,
                 });
@@ -948,8 +948,8 @@
             showLoading('Sending login code...');
             
             try {
-                // Use relative URLs that work regardless of domain or path structure
-                const resp = await fetch('./login-request', {
+                // Use API prefix path to ensure proper routing
+                const resp = await fetch('/api/login-request', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username})
@@ -991,7 +991,7 @@
             showLoading('Verifying code...');
             
             try {
-                const resp = await fetch('./login-verify', {
+                const resp = await fetch('/api/login-verify', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username, code})
